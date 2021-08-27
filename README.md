@@ -43,6 +43,5 @@ The following publication cover technical parts of μSBS project:
   publisher = {{USENIX} Association},
   year      = {2020},
   month     = {OCTOBER}
-
 }
 ```

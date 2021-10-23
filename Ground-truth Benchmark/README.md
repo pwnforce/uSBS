@@ -1,4 +1,4 @@
-# Ground-truth Benchmark for IoT Fuzzers
+# Ground-truth Benchmark for the IoT Fuzzers
 
 This repository contains the code of the `Discovery and Identification of Memory Corruption Vulnerabilities on Bare-metal Embedded Devices` paper, including the firmware used in the benchmarking section (with P2IM fuzzing scripts), code of the injected vulnerabilities and some CBMC tests to evaluate callback support.
 

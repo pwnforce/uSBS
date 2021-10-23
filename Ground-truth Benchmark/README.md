@@ -30,8 +30,3 @@ Now you can start benchmarking your fuzzer.
 
 ---  
 
-If you are using our work, please cite:
-
-```bibtex
-TODO
-```

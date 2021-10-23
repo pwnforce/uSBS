@@ -1,5 +1,4 @@
-# μSBS
-# Discovery and Identification of Memory Corruption Vulnerabilities on Bare-metal Embedded Devices
+# μSBS (Discovery and Identification of Memory Corruption Vulnerabilities on Bare-metal Embedded Devices)
 
 μSBS: Static Binary Sanitization of Bare-metal Embedded Devices
 

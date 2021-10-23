@@ -1,0 +1,86 @@
+include:
+  - /home/halfuzz/hal-fuzz/configs/hw/cortexm_memory.yml
+  - ./stm32f4_hal.yml
+  - ./stm32_udp_echo_server_addrs.yml
+
+use_nvic: False
+use_timers: False
+
+memory_map:
+  ivt: {base_addr: 0x0, file: ../STM32469I_EVAL_stm32_udp_echo_server.bin,
+    permissions: r-x, size: 0x800000}
+  rom: {base_addr: 0x08000000, file: ../STM32469I_EVAL_stm32_udp_echo_server.bin,
+    permissions: r-x, size: 0x800000}
+
+handlers:
+  BSP_IO_ConfigPin:
+    handler: 
+  udp_next_iss:
+    handler: hal_fuzz.handlers.lwip.udp_next_iss_hack
+
+  I2C_WaitOnFlagUntilTimeout:
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnMasterAddressFlagUntilTimeout:
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnTXEFlagUntilTimeout:
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnBTFFlagUntilTimeout:
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnRXNEFlagUntilTimeout:
+    handler: hal_fuzz.handlers.generic.return_zero
+
+  HAL_ETH_TransmitFrame:
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_TransmitFrame
+  HAL_ETH_GetReceivedFrame:
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_GetReceivedFrame
+  HAL_ETH_WritePHYRegister:
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_WritePHYRegister
+  HAL_ETH_ReadPHYRegister:
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_ReadPHYRegister
+  
+  iprintf:
+    handler: hal_fuzz.handlers.generic.stdio.printf
+
+  BSP_LED_Init:
+    handler: hal_fuzz.handlers.generic.hello
+  HAL_NVIC_SetPriority:
+    handler: hal_fuzz.handlers.generic.hello
+  BSP_IO_Init:
+    handler: hal_fuzz.handlers.generic.return_zero
+
+
+
+  BSP_IO_ConfigPin_new: # 08103fde
+    handler: 
+  udp_next_iss_new: # 
+    handler: hal_fuzz.handlers.lwip.udp_next_iss_hack
+
+  I2C_WaitOnFlagUntilTimeout_new: # 08107214
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnMasterAddressFlagUntilTimeout_new: # 081072d2
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnTXEFlagUntilTimeout_new: # 081073e4
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnBTFFlagUntilTimeout_new: # 08107476
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnRXNEFlagUntilTimeout_new: # 08107508
+    handler: hal_fuzz.handlers.generic.return_zero
+
+  HAL_ETH_TransmitFrame_new: # 0810513a
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_TransmitFrame
+  HAL_ETH_GetReceivedFrame_new: # 0810534c
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_GetReceivedFrame
+  HAL_ETH_WritePHYRegister_new: # 08105540
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_WritePHYRegister
+  HAL_ETH_ReadPHYRegister_new: # 08105464
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_ReadPHYRegister
+
+  iprintf_new: # 08118852
+    handler: hal_fuzz.handlers.generic.stdio.printf
+
+  BSP_LED_Init_new: # 0810385e
+    handler: hal_fuzz.handlers.generic.hello
+  HAL_NVIC_SetPriority_new: # 
+    handler: hal_fuzz.handlers.generic.hello
+  BSP_IO_Init_new: # 08103eea
+    handler: hal_fuzz.handlers.generic.return_zero

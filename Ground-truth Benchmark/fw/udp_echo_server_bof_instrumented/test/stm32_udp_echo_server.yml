@@ -1,0 +1,54 @@
+include:
+  - /home/halfuzz/hal-fuzz/configs/hw/cortexm_memory.yml
+  - /home/halfuzz/hal-fuzz/configs/hals/stm32f4_hal.yml
+  - ./stm32_udp_echo_server_addrs.yml
+
+use_nvic: False
+use_timers: False
+
+memory_map:
+  ivt: {base_addr: 0x0, file: ../STM32469I_EVAL_stm32_udp_echo_server.bin,
+    permissions: r-x, size: 0x800000}
+  rom: {base_addr: 0x08000000, file: ../STM32469I_EVAL_stm32_udp_echo_server.bin,
+    permissions: r-x, size: 0x800000}
+
+handlers:
+  BSP_IO_ConfigPin: #08105f18
+    handler: 
+  udp_next_iss: #
+    handler: hal_fuzz.handlers.lwip.udp_next_iss_hack
+
+  I2C_WaitOnFlagUntilTimeout: # 0810b312
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnMasterAddressFlagUntilTimeout: # 0810aa42
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnTXEFlagUntilTimeout: # 0810b510
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnBTFFlagUntilTimeout: # 0810ad92
+    handler: hal_fuzz.handlers.generic.return_zero
+  I2C_WaitOnRXNEFlagUntilTimeout: # 0810afde
+    handler: hal_fuzz.handlers.generic.return_zero
+
+  HAL_ETH_TransmitFrame: # 08107caa
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_TransmitFrame
+  HAL_ETH_GetReceivedFrame: # 0810829a
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_GetReceivedFrame
+  HAL_ETH_WritePHYRegister: # 08108928
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_WritePHYRegister
+  HAL_ETH_ReadPHYRegister: # 081086e0
+    handler: hal_fuzz.handlers.stm32f4_hal.stm32f4_eth.HAL_ETH_ReadPHYRegister
+  
+  iprintf: #08128824
+    handler: hal_fuzz.handlers.generic.stdio.printf
+  bof: # 08103170
+    handler: hal_fuzz.handlers.generic.hello
+  
+  BSP_LED_Init: # 0810571e
+    handler: hal_fuzz.handlers.generic.hello_hello
+  HAL_NVIC_SetPriority: # 08106b0a
+    handler: hal_fuzz.handlers.generic.hello
+  BSP_IO_Init: # 08105dda
+    handler: hal_fuzz.handlers.generic.return_zero
+
+  ethernetif_init: # 08101f56
+    handler: hal_fuzz.handlers.generic.hello_hello

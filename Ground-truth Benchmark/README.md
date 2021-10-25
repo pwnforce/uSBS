@@ -28,5 +28,7 @@ To construct *(a)*, repeatedly you pick some reachable locations in each firmwar
 
 Now you can start benchmarking your fuzzer.
 
----  
 
+---  
+## License
+Regarding the license of the collected firmware, the ones developed by STMicroelectronics can be redistributed as a benchmark. However, they must be used and executed solely and exclusively on or in combination with a microcontroller or a microprocessor device manufactured by or for STMicroelectronics. Furthermore, the Gateway, Drone, CNC, Robot, and Reflow Oven firmware can be modified, redistributed and used in any types of devices.

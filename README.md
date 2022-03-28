@@ -13,7 +13,7 @@
 
 ## Executing μSBS
 
-In order to execute μSBS just fo binary translation, you can run uSBS.py with the binary firmware as an argument. Furthermore, for instrumenting the binary, you need to run asan.py with firmware binary as an argument. 
+In order to execute μSBS just fo binary translation, you can run uSBS.py with the binary firmware as an argument. Furthermore, for instrumenting the binary, you need to run asan.py with firmware binary as an argument.
 
 **Note 1:** The asan.py can be modified for any instrumentation policy (i.e. other sanitization policies).
 
@@ -31,9 +31,10 @@ Connect to the OpenOCD server and upload the program with the following commands
 * exit
 
 ## Citing
+
 The following publication cover technical parts of μSBS project:
 
-```
+```bibtex
 @inproceedings{μSBS:RAID2020,
   author    = {Majid Salehi and Danny Hughes and Bruno Crispo},
   title     = {μSBS: Static Binary Sanitization of Bare-metal Embedded Devices for Fault Observability},

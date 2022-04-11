@@ -55,9 +55,11 @@ class USBSTranslator():
     #  return self.translate_str(ins,mapping)
    
       
-    #elif ins.mnemonic.startswith('tbb'): #you should manually adjust the tbb by yourself with the tbb tool.
+    elif ins.mnemonic.startswith('tbb'): #you should manually adjust the tbb by yourself with the tbb tool.
+      print('Found tbb instruction at 0x%x'%ins.address)
      # return self.translate_tbb(ins,mapping)
-    #elif ins.mnemonic.startswith('tbh'): #you should manually adjust the tbh by yourself with the tbh tool.
+    elif ins.mnemonic.startswith('tbh'): #you should manually adjust the tbh by yourself with the tbh tool.
+      print('Found tbh instruction at 0x%x'%ins.address)
      # return self.translate_tbh(ins,mapping)
     
 
@@ -410,17 +412,19 @@ class USBSTranslator():
     if op.type == ARM_OP_REG: # e.g. call eax or jmp ebx
       #return str(ins.bytes) #temporaryyyyy
       target = ins.reg_name(op.reg)
+      if str(target) != 'lr':
+        print('! Found an indirected jump to %s at %s'%(target, hex(ins.address)))
+
       #if (target=="lr"):   # baraye halate asan comment in khat va khat badi ra bardar 
       #  return self.translate_bxlr(ins, mapping)
 
-      #if (ins.mnemonic == "blx"):
-      #  return self.get_indirect_uncond_code(ins,mapping,target)
+      if (ins.mnemonic == "blx"):
+        print('Instrumenting an indirected jump to %s at %s'%(target, hex(ins.address)))
+        return self.get_indirect_uncond_code(ins,mapping,target)
       if (len(code) > 0):       
         code += str(ins.bytes)     
         return code 
       return None
-
-
 
     if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
       self.it_mask = self.it_mask[1:]
@@ -464,9 +468,10 @@ class USBSTranslator():
     bl #%s
     str r0, [sp,#-8]
     ldr r0, [sp,#-64]
-    add lr, pc, #4
+    add lr, pc, #5
     ldr pc, [sp,#-8]
-    '''
+    ''' # we add 4 + 1 to the link register for the thumb bit
+    # TODO: we should add the +1 depending if we're manipulating addresses referring to thumb or normal arm assembly. This is doable at instrumentation time.
  
     code = b''
 
@@ -477,12 +482,9 @@ class USBSTranslator():
     lookup_target = self.context.newbase
     if mapping is not None and ins.address in mapping:
       vmabase=self.context.newbase+mapping[ins.address] + len(code)
-      print "lookup_target::%s"%lookup_target
+      print "lookup_target::%s"%(hex(lookup_target))
       code += _asm( template%(target,lookup_target) , vmabase)
       return code
     code += _asm( template%(target,lookup_target) , self.context.newbase)
     return code
-  
 
-  
-  

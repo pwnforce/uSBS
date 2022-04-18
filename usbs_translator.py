@@ -47,11 +47,11 @@ class USBSTranslator():
     elif ins.mnemonic in ['cbz','cbnz']:
       return self.translate_cbz(ins,mapping)  
 
-    #elif ins.mnemonic.startswith('push'): # baraye halate asan comment in khat va khat badi ra bardar (baraye asan bayad push, pop, str, va bxlr dar func translate_uncond ra uncomment kard)
+    #elif ins.mnemonic.startswith('push'): # for ASAN mode uncomment this and next lines (for asan we should uncomment push, pop, str, and bxlr in func translate_uncond)
     #  return self.translate_push(ins,mapping)
-    #elif ins.mnemonic.startswith('pop'): # baraye halate asan comment in khat va khat badi ra bardar 
+    #elif ins.mnemonic.startswith('pop'):  # for ASAN mode uncomment this and next lines
     #  return self.translate_pop(ins,mapping)
-    #elif ins.mnemonic.startswith('str'): # baraye halate asan comment in khat va khat badi ra bardar 
+    #elif ins.mnemonic.startswith('str'):  # for ASAN mode uncomment this and next lines
     #  return self.translate_str(ins,mapping)
    
       
@@ -431,7 +431,7 @@ class USBSTranslator():
 
     # if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
     #   self.it_mask = self.it_mask[1:]
-    elif op.type == ARM_OP_IMM: # e.g. call 0xdeadbeef or jmp 0xcafebada
+    elif op.type == ARM_OP_IMM:
       target = op.imm
       #if(ins.address not in not_insert):
       #  inserted = self.before_inst_callback(ins)
@@ -485,7 +485,7 @@ class USBSTranslator():
     lookup_target = self.context.newbase
     if mapping is not None and ins.address in mapping:
       vmabase=self.context.newbase+mapping[ins.address] + len(code)
-      print "lookup_target::%s"%(hex(lookup_target))
+      print ("lookup_target::%s"%(hex(lookup_target)))
       code += _asm( template%(target,lookup_target) , vmabase)
       return code
     code += _asm( template%(target,lookup_target) , self.context.newbase)

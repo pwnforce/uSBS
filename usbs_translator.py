@@ -407,6 +407,9 @@ class USBSTranslator():
     return code
 
   def translate_uncond(self,ins,mapping):
+    if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
+      self.it_mask = self.it_mask[1:]
+      return None
     code= b''
     op = ins.operands[0] #Get operand
     if op.type == ARM_OP_REG: # e.g. call eax or jmp ebx
@@ -415,7 +418,7 @@ class USBSTranslator():
       if str(target) != 'lr':
         print('! Found an indirected jump to %s at %s'%(target, hex(ins.address)))
 
-      #if (target=="lr"):   # baraye halate asan comment in khat va khat badi ra bardar 
+      #if (target=="lr"):   # for ASAN mode uncomment this and next lines
       #  return self.translate_bxlr(ins, mapping)
 
       if (ins.mnemonic == "blx"):
@@ -426,8 +429,8 @@ class USBSTranslator():
         return code 
       return None
 
-    if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
-      self.it_mask = self.it_mask[1:]
+    # if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
+    #   self.it_mask = self.it_mask[1:]
     elif op.type == ARM_OP_IMM: # e.g. call 0xdeadbeef or jmp 0xcafebada
       target = op.imm
       #if(ins.address not in not_insert):

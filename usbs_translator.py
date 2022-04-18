@@ -27,7 +27,7 @@ class USBSTranslator():
     self.lastpoisonedfunc = None
     
   def translate_one(self,ins,mapping):
-    #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
+    #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))s
 
     #if len(self.it_mask) > 0:
     #  print "It Mask:%s"%self.it_mask

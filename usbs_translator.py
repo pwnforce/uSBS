@@ -97,7 +97,7 @@ class USBSTranslator():
       
     elif ins.mnemonic.startswith('tbb'): #you should manually adjust the tbb by yourself with the tbb tool.
       print('Found tbb instruction at 0x%x'%ins.address)
-      if self.context.enable_tbb_instrumentation:
+      if self.context.enable_TBB_instrumentation:
         return self.translate_tbb(ins,mapping)
     elif ins.mnemonic.startswith('tbh'): #you should manually adjust the tbh by yourself with the tbh tool.
       print('Found tbh instruction at 0x%x'%ins.address)

@@ -60,7 +60,7 @@ class USBSTranslator():
 
     
   def translate_one(self,ins,mapping):
-    #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
+    #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))s
 
     #if len(self.it_mask) > 0:
     #  print "It Mask:%s"%self.it_mask
@@ -87,11 +87,11 @@ class USBSTranslator():
       self.process_tbb_block_case(ins, newins, mapping)
       return newins
 
-    #elif ins.mnemonic.startswith('push'): # baraye halate asan comment in khat va khat badi ra bardar (baraye asan bayad push, pop, str, va bxlr dar func translate_uncond ra uncomment kard)
+    #elif ins.mnemonic.startswith('push'): # for ASAN mode uncomment this and next lines (for asan we should uncomment push, pop, str, and bxlr in func translate_uncond)
     #  return self.translate_push(ins,mapping)
-    #elif ins.mnemonic.startswith('pop'): # baraye halate asan comment in khat va khat badi ra bardar 
+    #elif ins.mnemonic.startswith('pop'):  # for ASAN mode uncomment this and next lines
     #  return self.translate_pop(ins,mapping)
-    #elif ins.mnemonic.startswith('str'): # baraye halate asan comment in khat va khat badi ra bardar 
+    #elif ins.mnemonic.startswith('str'):  # for ASAN mode uncomment this and next lines
     #  return self.translate_str(ins,mapping)
    
       
@@ -605,6 +605,9 @@ class USBSTranslator():
     return code
 
   def translate_uncond(self,ins,mapping):
+    if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
+      self.it_mask = self.it_mask[1:]
+      return None
     code= b''
     op = ins.operands[0] #Get operand
     if op.type == ARM_OP_REG: # e.g. call eax or jmp ebx
@@ -613,7 +616,7 @@ class USBSTranslator():
       if str(target) != 'lr':
         print('! Found an indirected jump to %s at %s'%(target, hex(ins.address)))
 
-      #if (target=="lr"):   # baraye halate asan comment in khat va khat badi ra bardar 
+      #if (target=="lr"):   # for ASAN mode uncomment this and next lines
       #  return self.translate_bxlr(ins, mapping)
 
       if (ins.mnemonic == "blx"):

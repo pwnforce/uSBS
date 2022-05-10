@@ -25,7 +25,7 @@ class USBSMapper():
       raise NotImplementedError( 'Architecture %s is not supported'%arch )
 
   def gen_mapping(self):
-    print 'Generating mapping...'
+    print ('Generating mapping...')
     mapping = {}
     currmap = {}
     last = None 
@@ -61,12 +61,12 @@ class USBSMapper():
     self.context.mapping_offset = len(self.bytes)+self.base 
     mapping[self.context.lookup_function_offset] = self.context.lookup_function_offset
     mapping[len(self.bytes)+self.base] = offset
-    print 'final offset for mapping is: 0x%x' % offset
-    print self.context.not_trans
+    print ('final offset for mapping is: 0x%x' % offset)
+    print (self.context.not_trans)
     return mapping
 
   def gen_newcode(self,mapping):
-    print 'Generating new code...'
+    print ('Generating new code...')
     newbytes = ''
     bytemap = {}
     last = None 
@@ -94,8 +94,8 @@ class USBSMapper():
     newbytes+=self.runtime.get_lookup_code(self.base,mapping[self.context.mapping_offset])
     for k in sorted(bytemap.keys()): 
       newbytes+=bytemap[k]
-    print 'mapping is being placed at offset: 0x%x' % len(newbytes)
-    print "newbyte length:%x"%len(newbytes)
+    print ('mapping is being placed at offset: 0x%x' % len(newbytes))
+    print ("newbyte length:%x"%len(newbytes))
     newbytes+=self.write_mapping(mapping,self.base,len(self.bytes))
     return newbytes
 
@@ -104,9 +104,9 @@ class USBSMapper():
     for addr in range(base,base+size):
       if addr in mapping:
         if addr < 10:
-          print 'offset for 0x%x: 0x%x' % (addr, mapping[addr])
+          print ('offset for 0x%x: 0x%x' % (addr, mapping[addr]))
         bytes+=struct.pack('<I',mapping[addr]) 
       else:
         bytes+=struct.pack('<I',0xffffffff)
-    print 'last address in mapping was 0x%x'%(base+size)
+    print ('last address in mapping was 0x%x'%(base+size))
     return bytes

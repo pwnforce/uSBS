@@ -85,7 +85,7 @@ class Rewriter(object):
 
       for section in elffile.iter_sections():
         if section.name == '.text':
-          print "Found .text"
+          print ("Found .text")
           offs = section.header.sh_offset
           size = section.header.sh_size
           addr = section.header.sh_addr
@@ -107,9 +107,9 @@ class Rewriter(object):
             json.dump(mapping_hex,f)
           with open('newbytes','wb') as f2:
             f2.write(newbytes)
-          print base
+          print (base)
           maptext = mapper.write_mapping(mapping,base,len(bytes))
-          print "byte length:%x"%len(bytes)
+          print ("byte length:%x"%len(bytes))
           usbs_writer.rewrite(fname,fname+'-r','newbytes',self.context.newbase)
 
     self.context.file = None

@@ -4,16 +4,33 @@
 
 ## Required packages
 
-μSBS is built on several opensource tools.
+μSBS requires *Python2* and is built on several open-source tools.
 
 * capstone (for linear disassembling)
 * keystone (for assembling)
 * pyelftools (for reading elf binaries)
 * LIEF (for modifying elf sections and segments)
 
+To simplify the setup, we provide a Dockerfile with which you can enjoy an already setup environment.
+
+## Starting the container
+
+1. Clone and `cd` into this repo.
+2. Build the docker image:
+
+    ```bash
+    docker build -t usbs .
+    ```
+
+3. Once the image has been built, run it. Make sure to pass the path of the folder containing the elf firmware you want to instrument through the `-v` flag.
+
+    ```bash
+    docker run -it -v $(realpath <path_to_elf_folder>):/elf --rm usbs:latest
+    ```
+
 ## Executing μSBS
 
-In order to execute μSBS just fo binary translation, you can run uSBS.py with the binary firmware as an argument. Furthermore, for instrumenting the binary, you need to run asan.py with firmware binary as an argument. 
+In order to execute μSBS just for binary translation, you can run `uSBS.py` with the binary firmware as an argument. Furthermore, for instrumenting the binary, you need to run `asan.py` with firmware binary as an argument.
 
 **Note 1:** The asan.py can be modified for any instrumentation policy (i.e. other sanitization policies).
 
@@ -31,9 +48,10 @@ Connect to the OpenOCD server and upload the program with the following commands
 * exit
 
 ## Citing
+
 The following publication cover technical parts of μSBS project:
 
-```
+```bibtex
 @inproceedings{μSBS:RAID2020,
   author    = {Majid Salehi and Danny Hughes and Bruno Crispo},
   title     = {μSBS: Static Binary Sanitization of Bare-metal Embedded Devices for Fault Observability},

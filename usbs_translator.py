@@ -1,3 +1,6 @@
+from distutils.ccompiler import new_compiler
+from shutil import ExecError
+from sys import dont_write_bytecode
 from usbs_assembler import _asm,ks_asm
 from capstone.arm import (ARM_CC_EQ, ARM_CC_NE, ARM_CC_HS, ARM_CC_LO,
         ARM_CC_MI, ARM_CC_PL, ARM_CC_VS, ARM_CC_VC, ARM_CC_HI,
@@ -25,6 +28,36 @@ class USBSTranslator():
     self.it_cond = ""
     self.context = context
     self.lastpoisonedfunc = None
+
+  def process_tbb_block_case(self, ins, newins, mapping):
+    # check if address is in a tbb switch case block
+    # if mapping is not None and ins.address in mapping: # ! Cannot modify the offsets if the table has already been written to the binary
+    if newins is not None:
+      if mapping is None or ins.address not in mapping:
+        # block_found = False
+        for tbb_block in self.context.tbb_blocks:
+          # print("TBB: Checking if 0x%x is in a tbb block"%ins.address)
+          for i in range(len(tbb_block['cases_addresses'])):
+            base_addr, case_length = zip(tbb_block['cases_addresses'], tbb_block['cases_lengths'])[i]
+            # print("TBB: Checking if 0x%x is in the tbb block starting @ 0x%x , %s bytes long"%(ins.address, base_addr, case_length))
+            if ins.address >= base_addr and ins.address < base_addr + case_length:
+              if len(newins) != len(ins.bytes):
+
+                curr_off = tbb_block['table_offsets'][i]
+
+                for j in range(len(tbb_block['cases_addresses'])): # Need to increment the offset of all the following blocks (i.e. with greater offset), not the current one
+                  print("TBB: translated instruction is not the same size as the original instruction")
+                  if tbb_block['table_offsets'][j] > curr_off:
+                    newoffset = tbb_block['table_offsets'][j] + ((len(newins) - len(ins.bytes)) / 2)
+                    old_offset = tbb_block['table_offsets'].pop(j)
+                    tbb_block['table_offsets'].insert(j, newoffset)
+                    print("TBB: old offset %s new offset: %s"%(hex(old_offset), hex(newoffset)))
+
+              # block_found = True
+              break
+        # if block_found is False:
+        #   print("TBB: ERROR: instruction @ %s not found in any case block"%hex(ins.address))
+
     
   def translate_one(self,ins,mapping):
     #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
@@ -39,13 +72,20 @@ class USBSTranslator():
 
     match = re.search("^(b|bl|blx|bx)(|eq|ne|gt|lt|ge|le|cs|hs|cc|lo|mi|pl|al|nv|vs|vc|hi|ls)(|.w)$", ins.mnemonic)
     if match:
-      return self.translate_uncond(ins,mapping)
+      newins = self.translate_uncond(ins,mapping)
+      self.process_tbb_block_case(ins, newins, mapping)
+      return newins
+
     elif ins.mnemonic.startswith('it'):  #there is sth wrong with handling that in toggle app at address 8000c3e (ittt ne) in HAL_RCC_ClockConfig function.
       return self.translate_it(ins)
-    elif "ldr" in ins.mnemonic: 
-      return self.translate_ldr(ins,mapping)
+    elif "ldr" in ins.mnemonic:
+      newins = self.translate_ldr(ins,mapping)
+      self.process_tbb_block_case(ins, newins, mapping)
+      return newins
     elif ins.mnemonic in ['cbz','cbnz']:
-      return self.translate_cbz(ins,mapping)  
+      newins = self.translate_cbz(ins,mapping)
+      self.process_tbb_block_case(ins, newins, mapping)
+      return newins
 
     #elif ins.mnemonic.startswith('push'): # baraye halate asan comment in khat va khat badi ra bardar (baraye asan bayad push, pop, str, va bxlr dar func translate_uncond ra uncomment kard)
     #  return self.translate_push(ins,mapping)
@@ -55,12 +95,18 @@ class USBSTranslator():
     #  return self.translate_str(ins,mapping)
    
       
-    #elif ins.mnemonic.startswith('tbb'): #you should manually adjust the tbb by yourself with the tbb tool.
-     # return self.translate_tbb(ins,mapping)
-    #elif ins.mnemonic.startswith('tbh'): #you should manually adjust the tbh by yourself with the tbh tool.
+    elif ins.mnemonic.startswith('tbb'): #you should manually adjust the tbb by yourself with the tbb tool.
+      print('Found tbb instruction at 0x%x'%ins.address)
+      if self.context.enable_tbb_instrumentation:
+        return self.translate_tbb(ins,mapping)
+    elif ins.mnemonic.startswith('tbh'): #you should manually adjust the tbh by yourself with the tbh tool.
+      print('Found tbh instruction at 0x%x'%ins.address)
      # return self.translate_tbh(ins,mapping)
-    
-
+    elif ins.mnemonic.startswith('cmp'):
+      #print('Found cmp instruction at 0x%x'%ins.address)
+      self.push_cmp_block(ins,mapping)
+      self.dont_instrument_it_blocks()
+      return None
 
 
     #elif ins.address == 0x8000f9e: #temporaryyyyy
@@ -79,8 +125,60 @@ class USBSTranslator():
       #  inserted = self.before_inst_callback(ins)
       #if inserted is not None:
       #  return inserted + str(ins.bytes)
-      return None #No translation needs to be done
+      return None # No translation needs to be done
 
+  def translate_tbb_offsets(self, ins, mapping, force_generate=False):
+    print("TBB: Hit a TBB breakpoint at %s. Bytes interpreted as a %s instruction"%(hex(ins.address), ins.mnemonic))
+    # print("ins length: %s"%len(ins.bytes))
+    if force_generate is False and (mapping is None or ins.address not in mapping):
+      newins = ins.bytes * 2
+      # print("length after doubleing the size: %s"%len(newins))
+      return newins
+    else:
+      # * Return the correct and padded offsets
+      newins = b''
+      for tbb_block in self.context.tbb_blocks:
+        block_found = False
+        if ins.address >= tbb_block['offset_table_addr'] and ins.address < (tbb_block['offset_table_addr'] + tbb_block['table_length']):
+          # print("TBB: Found a case block @ 0x%x"%ins.address)
+          block_found = True
+          offsets = tbb_block['table_offsets'][ins.address - tbb_block['offset_table_addr'] : ins.address - tbb_block['offset_table_addr'] + len(ins.bytes)]
+          for i in range(len(offsets)):
+            addition = tbb_block['table_offset_additions'][i + ins.address - tbb_block['offset_table_addr']]
+            newins += struct.pack('<H', offsets[i] + addition)
+
+      if not block_found:
+        print("TBB: ERROR: table @%s not found"%hex(ins.address))
+
+      # for b in ins.bytes:
+      #   newins = b + b'\x00'
+      # print("newins after patch: %s len:%d"%(newins, len(newins)))
+      return newins
+
+  def push_cmp_block(self,ins,mapping):
+    ins_addr = ins.address
+    cmp_value = ins.operands[1].imm
+    #print("address: %s cmp_value: %d"%(hex(ins_addr),cmp_value))
+
+    # push to a list but record only the last 5
+    self.context.last_cmp_addresses.append((ins_addr, cmp_value)) # append the address and value of the last cmp
+    if len(self.context.last_cmp_addresses) > 5:
+      self.context.last_cmp_addresses = self.context.last_cmp_addresses[1:]
+    return None
+
+  def push_branch_block(self,ins, target,mapping):
+    ins_addr = ins.address
+    #print("address: %s branch_value: %d"%(hex(ins_addr),cmp_value))
+
+    # push to a list but record only the last 5
+    self.context.last_branch_addresses.append((ins_addr, target)) # append the address and value of the last cmp
+    if len(self.context.last_branch_addresses) > 5:
+      self.context.last_branch_addresses = self.context.last_branch_addresses[1:]
+    return None
+
+  def dont_instrument_it_blocks(self):
+    if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
+      self.it_mask = self.it_mask[1:]
 
 
   def translate_it(self,ins):
@@ -88,8 +186,6 @@ class USBSTranslator():
     self.it_mask = ins.mnemonic.replace("i","")
     self.it_cond = ins.op_str
     return None
-
-
 
 
 
@@ -158,9 +254,6 @@ class USBSTranslator():
         return inserted + str(ins.bytes)
 
 
-  
-
- 
 
   def translate_pop(self,ins,mapping):
     if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
@@ -229,20 +322,129 @@ class USBSTranslator():
     return None
 
   
-  def translate_tbb (self,ins,mapping):
+  def translate_tbb(self,ins,mapping):
     #print "this is a tbb address: %s"%hex(ins.address)
     operator=ins.op_str
-    if "[pc," in operator:
-      tbb_addr =  ins.address + 4
-      if mapping is not None and ins.address in mapping:
-        tbb_addrnew = self.context.newbase + mapping[ins.address] + 4
+    print("operator is %s"%operator)
+    # if "[pc," in operator:
+    #   tbb_addr =  ins.address + 4
+    #   if mapping is not None and ins.address in mapping:
+    #     tbb_addrnew = self.context.newbase + mapping[ins.address] + 4
+    
         #print "this is a tbb pc table address: %s"% hex(tbb_addr)
         #print "this is a new tbb pc table address: %s"% hex(tbb_addrnew)
       #self.context.not_trans_tbb.append(tbb_addr)
       #self.context.not_trans_tbb.append(tbb_addr+2)
+
+
+    if mapping is None or ins.address not in mapping: # we're creating the mapping so need to learn the tbb structure
+      print("Learning TBB mapping at %s"%ins.address)
+
+      tbb_metadata = {}
+      tbb_metadata['tbb_addr'] = ins.address
+      
+      if "[pc," in operator:
+        tbb_offset_table_addr =  ins.address + 4
+      else:
+        tbb_offset_table_addr = 0xffffffff
+        print("ERROR: tbb offset table is somewhere else: %s"%operator)
+        raise NotImplemented("tbb offset table is somewhere else: %s"%operator)
+      tbb_metadata['offset_table_addr'] = tbb_offset_table_addr
+
+      # find the last cmp operand
+      assert(len(self.context.last_cmp_addresses) != 0)
+      addr, cmp_op = self.context.last_cmp_addresses[-1]
+      # print("Considering last cmp at %s with value %d"%(hex(addr),int(cmp_op)))
+
+      tbb_table_length = 1 + cmp_op
+
+      tbb_metadata['table_length'] = tbb_table_length
+
+      # * read the tbb_table_length offsets
+      tbb_table_offsets = []
+      for i in range(tbb_table_length):
+        tbb_table_offsets.append(self.context.read_byte(tbb_offset_table_addr + i * 1)) # 1 byte offset
+      tbb_metadata['table_offsets'] = tbb_table_offsets
+
+      # * each offset needs to be increased to account for the double size of all the offsets
+      table_offset_additions = []
+      for _ in range(len(tbb_table_offsets)):
+        new_off_addition = len(tbb_table_offsets) / 2
+        table_offset_additions.append(new_off_addition)
+
+      tbb_metadata['table_offset_additions'] = table_offset_additions
+
+      # print('Old offsets: %s'%tbb_metadata['original_table_offsets'])
+      # print('New offsets: %s'%tbb_metadata['table_offsets'])
+
+      tbb_cases_code_addresses = []
+      for i in range(tbb_table_length):
+        tbb_cases_code_addresses.append(tbb_offset_table_addr + (tbb_table_offsets[i] * 2))
+      tbb_metadata['cases_addresses'] = tbb_cases_code_addresses
+
+
+      # * Compute case blocks lengths
+      cases_code_addresses_sorted = sorted(tbb_cases_code_addresses)
+
+      tbb_cases_lengths = []
+      
+      if cases_code_addresses_sorted[0] != tbb_offset_table_addr + tbb_table_length: # if the first case is not adjacent to the end of the table then I assume it is a default case and I should consider it
+        print("WARNING: first case address is not the offset table address + table length. Assuming there's the default one there and considering it as an additional case.")
+        # ! I'm considering the default case as an additional case but I am not incrcementing the table length / cases count
+        tbb_cases_lengths.append(cases_code_addresses_sorted[0] - (tbb_offset_table_addr + tbb_table_length))
+
+      for i in range(tbb_table_length-1):
+        tbb_cases_lengths.append(cases_code_addresses_sorted[i+1] - cases_code_addresses_sorted[i])
+
+      tbb_metadata['cases_lengths'] = tbb_cases_lengths
+      
+      
+      # * Save default case address for patching the branch (bhi) to it, if not already done somewhere else
+      if cases_code_addresses_sorted[0] != tbb_offset_table_addr + tbb_table_length: # save it if is right after the branch table
+        tbb_metadata['default_case_addr'] = tbb_offset_table_addr + tbb_table_length
+      else: # take the value from the branch right after the last cmp
+        assert(len(self.context.last_branch_addresses) != 0)
+        addr, branch_target_address = self.context.last_branch_addresses[-1]
+        print("Considering last branch at %s to target address %s"%(hex(addr),hex(branch_target_address)))
+        tbb_metadata['default_case_addr'] = branch_target_address # or addr + branch_target_offset
+
+      assert('tbb_addr' in tbb_metadata)
+      assert('offset_table_addr' in tbb_metadata)
+
+      # print(tbb_metadata)
+
+      self.context.tbb_blocks.append(tbb_metadata)
+
+      # * add breakpoints to detect when disassembling tables bytes to patch them
+      for i in range(tbb_table_length):
+        self.context.add_tbb_table_breakpoint(tbb_offset_table_addr + 1 * i, 1) # 1 byte offset for tbb instructions
+
+      # * assemble and return the new tbh instruction 
+      new_operator = operator[:-1] + ", lsl #1]"
+      code = _asm( 'tbh %s'%(new_operator),self.context.newbase)
+      # print("New tbb->tbh code length before mapping: %d" % len(code))
+
+      return code
+
+    else: # we're generating the code
+
+      if ins.address in mapping:
+        vmabase=self.context.newbase+mapping[ins.address]
+
+        print("Generating TBB->TBH code at %s"%hex(ins.address))
+        new_operator = operator[:-1] + ", lsl #1]"
+        code = _asm( 'tbh %s'%(new_operator),vmabase)
+
+        # print("New tbb->tbh code length after mapping: %d" % len(code))
+
+        return code
+
+      else:
+        print("ERROR: TBB->TBH address %s is not in the mapping"%hex(ins.address))
+        raise Exception("TBB->TBH address %s is not in the mapping"%hex(ins.address))
   
   
-  def translate_tbh (self,ins,mapping):
+  def translate_tbh(self,ins,mapping):
     #print "this is a tbh address: %s"%hex(ins.address)
     operator=ins.op_str
     if "[pc," in operator:
@@ -254,8 +456,6 @@ class USBSTranslator():
 
     
   def translate_ldr(self,ins,mapping):
-
-
     #if ins.address == 0x8000bb0: #temporaryyyyy
     #  print "we are exiting BOF!"
     #  inserted= None
@@ -410,16 +610,23 @@ class USBSTranslator():
     if op.type == ARM_OP_REG: # e.g. call eax or jmp ebx
       #return str(ins.bytes) #temporaryyyyy
       target = ins.reg_name(op.reg)
+      if str(target) != 'lr':
+        print('! Found an indirected jump to %s at %s'%(target, hex(ins.address)))
+
       #if (target=="lr"):   # baraye halate asan comment in khat va khat badi ra bardar 
       #  return self.translate_bxlr(ins, mapping)
 
-      #if (ins.mnemonic == "blx"):
-      #  return self.get_indirect_uncond_code(ins,mapping,target)
+      if (ins.mnemonic == "blx"):
+        print('Instrumenting an indirected jump to %s at %s'%(target, hex(ins.address)))
+        return self.get_indirect_uncond_code(ins,mapping,target)
       if (len(code) > 0):       
         code += str(ins.bytes)     
         return code 
       return None
-
+    
+    if op.type == ARM_OP_IMM: # e.g. bx 0x12345678
+      target = op.imm
+      self.push_branch_block(ins, target, mapping) # save the branch instruction for determining the default case in tbb blocks
 
 
     if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
@@ -464,9 +671,10 @@ class USBSTranslator():
     bl #%s
     str r0, [sp,#-8]
     ldr r0, [sp,#-64]
-    add lr, pc, #4
+    add lr, pc, #5
     ldr pc, [sp,#-8]
-    '''
+    ''' # we add 4 + 1 to the link register for the thumb bit
+    # TODO: we should add the +1 depending if we're manipulating addresses referring to thumb or normal arm assembly. This is doable at instrumentation time.
  
     code = b''
 
@@ -477,12 +685,9 @@ class USBSTranslator():
     lookup_target = self.context.newbase
     if mapping is not None and ins.address in mapping:
       vmabase=self.context.newbase+mapping[ins.address] + len(code)
-      print "lookup_target::%s"%lookup_target
+      print("lookup_target::%s"%(hex(lookup_target)))
       code += _asm( template%(target,lookup_target) , vmabase)
       return code
     code += _asm( template%(target,lookup_target) , self.context.newbase)
     return code
-  
 
-  
-  

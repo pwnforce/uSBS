@@ -282,7 +282,7 @@ if __name__ == '__main__':
     rewriter.set_before_malloc(iprintf_ins)
     rewriter.rewrite(sys.argv[1],'arm')
     end = time.time()
-    print "Processing Time:"
+    print("Processing Time:")
     print(end - start)
   else:
-    print "Error: must pass executable filename.\nCorrect usage: %s <filename>"%sys.argv[0]
+    print("Error: must pass executable filename.\nCorrect usage: %s <filename>"%sys.argv[0])

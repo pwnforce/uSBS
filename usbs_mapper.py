@@ -38,9 +38,14 @@ class USBSMapper():
         #print "Mvalue: %s"% ins[1]
         currmap[ins[0]] = len (ins[1])
         continue
-      
+      #print("Processing address %s"%hex(ins.address))
+
       if ins is not None:
-        newins = self.translator.translate_one(ins,None)
+        if ins.address in self.context.get_tbb_table_breakpoints_addresses(): # This is for patching TBB offset tables
+          newins = self.translator.translate_tbb_offsets(ins,mapping)
+          # print("Patching TBB offset table at 0x%x with new bytes %s"%(ins.address, str(newins)))
+        else:
+          newins = self.translator.translate_one(ins,None)
         if newins is not None:
           currmap[ins.address] = len(newins)
         else:
@@ -73,14 +78,19 @@ class USBSMapper():
         bytemap[ins[0]] = str(ins[1])
         continue
       if ins is not None:
-        newins = self.translator.translate_one(ins,mapping)
-        if newins is not None and ins.address not in self.context.not_trans:
-          currentaddr = ins.address + len(newins)
-          bytemap[ins.address] = newins 
+        if ins.address in self.context.get_tbb_table_breakpoints_addresses(): # This is for patching TBB offset tables
+          newins = self.translator.translate_tbb_offsets(ins,mapping, True)
+          bytemap[ins.address] = newins
+          # print('Patching TBB offset table at 0x%x with new bytes %s'%(ins.address, str(newins)))
         else:
-          currentaddr = ins.address + len(ins.bytes)
-          #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
-          bytemap[ins.address] = str(ins.bytes)
+          newins = self.translator.translate_one(ins,mapping)
+          if newins is not None and ins.address not in self.context.not_trans:
+            currentaddr = ins.address + len(newins)
+            bytemap[ins.address] = newins 
+          else:
+            currentaddr = ins.address + len(ins.bytes)
+            #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
+            bytemap[ins.address] = str(ins.bytes)
     newbytes+=self.runtime.get_lookup_code(self.base,mapping[self.context.mapping_offset])
     for k in sorted(bytemap.keys()): 
       newbytes+=bytemap[k]

@@ -24,12 +24,18 @@ class Context(object):
 
     self.file = None # file object of the input binary
 
+    # * TBB & TBH instrumentation metadata
+    self.last_cmp_addresses = [] # last n cmp instructions seen. Contains tuples (address, operand1)
+    self.last_branch_addresses = [] # last n branches instructions seen. Contains tuples (address, branch_target)
+
     # TBB metadata
     self.enable_TBB_instrumentation = True
     self.tbb_blocks = [] # tbb metadata list containing a dict for each tbb->tbh instruction
-    self.last_cmp_addresses = [] # last n cmp instructions seen. Contains tuples (address, operand1)
-    self.last_branch_addresses = [] # last n branches instructions seen. Contains tuples (address, branch_target)
     self.tbb_table_breakpoints = [] # list of (addresses, table size) of tbb tables that needs to be intercepted while the disassembler is running
+    # TBH metadata
+    self.enable_TBH_instrumentation = True
+    self.tbh_blocks = [] # tbb metadata list containing a dict for each tbb->tbh instruction
+    self.tbh_table_breakpoints = [] # list of (addresses, table size) of tbb tables that needs to be intercepted while the disassembler is running
 
   def compute_addr_offset(self):
     self.offset_to_file = 0x0101c0 - self.oldbase # TODO: set the 0x0101c0 automatically
@@ -43,11 +49,19 @@ class Context(object):
 
   def read_byte(self,address_elf):
     address = address_elf + self.offset_to_file
-    print("reading value at address %s in elf %s" % (hex(address), hex(address_elf)))
+    # print("reading value at address %s in elf %s" % (hex(address), hex(address_elf)))
     assert(address > 0)
     value = self.read_memory(address,1)
-    print("read value: %s at address %s in elf %s" % (ord(str(value)), hex(address), hex(address_elf)))
+    # print("read one bytes value: %s at address %s in elf %s" % (ord(str(value)), hex(address), hex(address_elf)))
     return struct.unpack('B',value)[0]
+
+  def read_two_bytes(self,address_elf):
+    address = address_elf + self.offset_to_file
+    # print("reading value at address %s in elf %s" % (hex(address), hex(address_elf)))
+    assert(address > 0)
+    value = self.read_memory(address,2)
+    # print("read two bytes value: %s at address %s in elf %s" % (str(value), hex(address), hex(address_elf)))
+    return struct.unpack('H',value)[0]
 
   def add_tbb_table_breakpoint(self, address, size):
     if address is not None and size is not None:
@@ -58,5 +72,15 @@ class Context(object):
 
   def get_tbb_table_breakpoints_addresses(self):
     return [x[0] for x in self.tbb_table_breakpoints]
+
+  def add_tbh_table_breakpoint(self, address, size):
+    if address is not None and size is not None:
+      self.tbh_table_breakpoints.append((address, size))
+      return None
+    else:
+      raise Exception("Address (%s) or size (%s) are None" % (address, size))
+
+  def get_tbh_table_breakpoints_addresses(self):
+    return [x[0] for x in self.tbh_table_breakpoints]
 
 

@@ -17,7 +17,7 @@ class USBSMapper():
     if arch == 'arm':
       from usbs_translator import USBSTranslator
       from usbs_runtime import USBSRuntime
-      self.translator = USBSTranslator(context.before_push,context.before_push_it,context.before_str,context.before_strd,context.before_ret,context.before_ret_bxlr,context.before_malloc,self.context)
+      self.translator = USBSTranslator(self.context)
       self.runtime = USBSRuntime(self.context)
       global assembler
       import usbs_assembler as assembler

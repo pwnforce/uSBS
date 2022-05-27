@@ -15,15 +15,8 @@ import binascii
 
 class USBSTranslator():
 
-  def __init__(self,before_push,before_push_it,before_str,before_strd,before_ret,before_ret_bxlr,before_malloc,context):
+  def __init__(self,context):
     self.ks = Ks(KS_ARCH_ARM, KS_MODE_THUMB)
-    self.before_push = before_push
-    self.before_push_it = before_push_it
-    self.before_str = before_str
-    self.before_strd = before_strd
-    self.before_ret = before_ret
-    self.before_ret_bxlr = before_ret_bxlr
-    self.before_malloc = before_malloc
     self.it_mask = ""
     self.it_cond = ""
     self.context = context

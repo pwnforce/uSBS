@@ -18,21 +18,12 @@ class Rewriter(object):
 
   def __init__(self):
     self.context = Context()
-  def set_before_push(self,func):
-    self.context.before_push = func
-  def set_before_push_it (self, func):
-    self.context.before_push_it = func
-  def set_before_str(self,func):
-    self.context.before_str = func
-  def set_before_strd(self,func):
-    self.context.before_strd = func  
+  def set_indirect_branch(self,func):
+    self.context.indirect_branch = func
+  def set_func_beginning (self, func):
+    self.context.func_beginning = func
   def set_before_ret(self,func):
     self.context.before_ret = func
-  def set_before_ret_bxlr (self, func):
-    self.context.before_ret_bxlr = func
-  def set_before_malloc (self, func):
-    self.context.before_malloc = func
-
 
 # * Sections in firmware:
 # .isr_vector

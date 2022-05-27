@@ -394,20 +394,12 @@ class USBSTranslator():
   
   def translate_bxlr(self,ins,mapping):
     if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
-      #print "2str"
       self.it_mask = self.it_mask[1:]
       return None
     inserted= None
     code= b'' 
     currfunc = self.get_current_func(ins)
-    #if currfunc == self.lastpoisonedfunc:
-     # inserted = "\x4d\xf8\x40\x2c\xef\xf3\x00\x82" + self.before_ret(ins, -1) + "\x82\xf3\x00\x88\x5d\xf8\x40\x2c"
-    #  return inserted + str(ins.bytes) 
-    #return str(ins.bytes) #temporaryyyyy
-    if currfunc == self.lastpoisonedfunc:
-      inserted = "\x4d\xf8\x80\x2c\xef\xf3\x00\x82" + self.before_ret_bxlr(ins, -1) + "\x82\xf3\x00\x88\x5d\xf8\x80\x2c"
-      return inserted + str(ins.bytes)   
-    return None
+    return self.context.before_ret() + str(ins.bytes)   
 
   def translate_push(self,ins,mapping): 
     if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
@@ -415,26 +407,14 @@ class USBSTranslator():
       self.it_mask = self.it_mask[1:]
       return None
 
-    # The following temp is an Example for stack based buffer overflow :-)
-    #temp = '''         
-    #str r0, [sp, #-64]
-    #add r0, sp, #12
-    #sub r0, #8192
-    #str r2, [r0]
-    #ldr r0, [sp, #-64]
-    #str r2, [sp, #12]
-    #'''
+ 
     inserted = None
     code= b''
     operator = ins.op_str
-    #if ins.address < 0x8000b90 or ins.address > 0x8000c2c: #temporaryyyyy this was for a firmware that I wanted to only sanitize one function not all instructions. 
-    #  return str(ins.bytes) #temporaryyyyy
     if "lr" in operator:
       currfunc = self.get_current_func(ins)
       self.lastpoisonedfunc = currfunc
       inserted = "\x4d\xf8\x80\x2c\xef\xf3\x00\x82" + self.before_push(ins) + "\x82\xf3\x00\x88\x5d\xf8\x80\x2c"
-      #if ins.address == 0x8000e5c:     #it is just for writing on LR in function __libc_init_array in toggle app (it should be uncommented when you want to run the stack buffer overflow example which is defined in temp at the beginning of func.)
-      #  return inserted + str(ins.bytes) + _asm( temp, 0x8001000 )
       return inserted + str(ins.bytes)
     return None
 
@@ -904,14 +884,14 @@ class USBSTranslator():
       return None
     code= b''
     op = ins.operands[0] #Get operand
-    if op.type == ARM_OP_REG: # e.g. call eax or jmp ebx
+    if op.type == ARM_OP_REG: 
       #return str(ins.bytes) #temporaryyyyy
       target = ins.reg_name(op.reg)
       if str(target) != 'lr':
         print('! Found an indirected jump to %s at %s'%(target, hex(ins.address)))
 
-      #if (target=="lr"):   # for ASAN mode uncomment this and next lines
-      #  return self.translate_bxlr(ins, mapping)
+      if (target=="lr"):   # we need to push to the shadow stack the content of the lr register
+        return self.translate_bxlr(ins, mapping)
 
       if (ins.mnemonic == "blx"):
         print('Instrumenting an indirected jump to %s at %s'%(target, hex(ins.address)))

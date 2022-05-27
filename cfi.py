@@ -7,7 +7,7 @@ from usbs import Rewriter
 from usbs_assembler import _asm,ks_asm
 
 
-def indirect_branch(inst, regnum):
+def indirect_branch():
   temp = '''
     str r2, [sp, #-96]
     mov.w r2, #0x10
@@ -17,7 +17,7 @@ def indirect_branch(inst, regnum):
   '''
   return _asm(temp, 0x08100000 )
 
-def func_beginning(inst, regnum):
+def func_beginning():
   temp = '''
     str r2, [sp, #-96]
     push lr 
@@ -29,7 +29,7 @@ def func_beginning(inst, regnum):
   '''
   return _asm( temp%(regnum*4), 0x08100000 )
 
-def ret(inst, regnum):
+def ret():
   temp = '''
     str r2, [sp, #-96] 
     mov.w r2, #0x21 

@@ -29,6 +29,22 @@ class USBSTranslator():
     self.context = context
     self.lastpoisonedfunc = None
 
+  def prepend_pop_register(self, ins, newins):
+    # if True: # Disable prepend pop, only for debugging
+    #   return newins
+    if newins is None:
+      return None
+    # if mapping is not None and ins.address in mapping:
+    for tbh_block in self.context.tbh_blocks:
+      for case_address in tbh_block['cases_addresses']:
+        if hex(ins.address) == hex(case_address):
+          print("TBH: Found a block address @ %s to prepend pop"%hex(ins.address))
+          newins = _asm('pop {%s}'%(tbh_block['table_address_register']), self.context.newbase) + newins # ! I probably should do this in the translator right when I process the instruction because I need to update the offsets also for the pop which is something I do there #_asm('pop %s'%tbh_block['table_address_register'], self.context.newbase)
+          return newins
+    return newins
+    # else:
+    #   return newins
+
   def process_tbb_block_case(self, ins, newins, mapping):
     # check if address is in a tbb switch case block
     # if mapping is not None and ins.address in mapping: # ! Cannot modify the offsets if the table has already been written to the binary
@@ -37,16 +53,19 @@ class USBSTranslator():
         # block_found = False
         for tbb_block in self.context.tbb_blocks:
           # print("TBB: Checking if 0x%x is in a tbb block"%ins.address)
-          for i in range(len(tbb_block['cases_addresses'])):
+
+          block_count = min(len(tbb_block['cases_addresses']), len(tbb_block['cases_lengths']))
+
+          for i in range(block_count):
             base_addr, case_length = zip(tbb_block['cases_addresses'], tbb_block['cases_lengths'])[i]
             # print("TBB: Checking if 0x%x is in the tbb block starting @ 0x%x , %s bytes long"%(ins.address, base_addr, case_length))
             if ins.address >= base_addr and ins.address < base_addr + case_length:
               if len(newins) != len(ins.bytes):
+                print("TBB: translated instruction is not the same size as the original instruction")
 
                 curr_off = tbb_block['table_offsets'][i]
 
                 for j in range(len(tbb_block['cases_addresses'])): # Need to increment the offset of all the following blocks (i.e. with greater offset), not the current one
-                  print("TBB: translated instruction is not the same size as the original instruction")
                   if tbb_block['table_offsets'][j] > curr_off:
                     newoffset = tbb_block['table_offsets'][j] + ((len(newins) - len(ins.bytes)) / 2)
                     old_offset = tbb_block['table_offsets'].pop(j)
@@ -57,6 +76,62 @@ class USBSTranslator():
               break
         # if block_found is False:
         #   print("TBB: ERROR: instruction @ %s not found in any case block"%hex(ins.address))
+
+  def process_tbh_block_case(self, ins, newins, mapping):
+    # check if address is in a tbh switch case block
+    # if mapping is not None and ins.address in mapping: # ! Cannot modify the offsets if the table has already been written to the binary
+    # if hex(ins.address) == hex(0x8001286):
+    #   print("TBH: FOUND: I am @ %s"%hex(ins.address))
+    if newins is not None:
+      if mapping is None or ins.address not in mapping: # i.e. if mapping time
+        # block_found = False
+        for tbh_block in self.context.tbh_blocks: # for each tbh instruction in the code
+          # print("TBH: Checking if 0x%x is in a tbh block"%ins.address)
+
+          block_count = min(len(tbh_block['sorted_cases_addresses']), len(tbh_block['cases_lengths'])) # If the instruction is in the last block is not a problem as I don't have any other offsets to increment
+
+          for i in range(block_count): 
+            # print(tbh_block['cases_addresses'])
+            # print(tbh_block['cases_lengths'])
+            base_addr, case_length = zip(tbh_block['sorted_cases_addresses'], tbh_block['cases_lengths'])[i]
+            # print("TBH: Checking if 0x%x is in the tbh block starting @ 0x%x , %s bytes long"%(ins.address, base_addr, case_length))
+
+            if hex(ins.address) == hex(0x8001286):
+              print("TBH: translated instruction len %d is whereas original instruction len is %d @ %s <= 0x%x < %s = %s + %d"%(len(newins), len(ins.bytes),hex(base_addr), ins.address, hex(base_addr + case_length), hex(base_addr), case_length))
+
+            # TODO: Handle cases_lengths == 0
+            # ! IDEA: Leave lengths to zero and consider the next one != 0 for doing whatever needed. When writing them down to the binary do the same. 
+            
+            if ins.address >= base_addr and ins.address < base_addr + case_length:
+              # if hex(ins.address) == hex(0x8001286):
+              #   print("TBH: INNNNNN translated instruction len %d is whereas original instruction len is %d @ %s <= 0x%x < %s"%(len(newins), len(ins.bytes),hex(base_addr), ins.address, hex(base_addr + case_length)))
+              if len(newins) != len(ins.bytes):
+                print("TBH: translated instruction is not the same size as the original instruction @ %s <= 0x%x < %s"%(hex(base_addr), ins.address, hex(base_addr + case_length)))
+
+                curr_off = sorted(tbh_block['table_offsets'])[i]
+                # print("Index i is %d and curr_off is %s"%(i, hex(curr_off)))
+
+                for j in range(len(tbh_block['sorted_cases_addresses'])): # Need to increment the offsets and lengths of all the following blocks (i.e. with greater offset), not the current one
+                  if tbh_block['table_offsets'][j] > curr_off:
+                    newoffset = tbh_block['table_offsets'][j] + ((len(newins) - len(ins.bytes)) / 2)
+                    # if (newins[1] == "\xbc"): # TODO: check if this is ok. Tentative fix for offsets accounting the pop {candidate_reg} to the offset of the current block embedding the pop --> making it part of the previous block
+                    #   print("TBH: Found a prepended pop instruction at %s, adjusting offset value %s by - 1*2 bytes"%(hex(ins.address), hex(newoffset)))
+                    #   newoffset = newoffset - 1 # * this may be correct but I should avoid doing it twice for blocks with 0 length
+                    old_offset = tbh_block['table_offsets'].pop(j)
+                    tbh_block['table_offsets'].insert(j, newoffset)
+                    print("TBH: old offset %s new offset: %s"%(hex(old_offset), hex(newoffset)))
+
+                # increment the current case length # TODO: if this works (seems unnecessary), do the same for the TBB case
+                # ! This is wrong bc if I increment the length of the current block, the first instruction of the next block will fall in the previous one
+                # --> I should probably do this after all the offsets have been updated
+                # new_len = case_length + (len(newins) - len(ins.bytes))
+                # tbh_block['cases_lengths'][i] = new_len
+                # print("TBH: old case length %s new length: %s"%(hex(case_length), hex(new_len)))
+
+              # block_found = True
+              break
+        # if block_found is False:
+        #   print("TBH: ERROR: instruction @ %s not found in any case block"%hex(ins.address))
 
     
   def translate_one(self,ins,mapping):
@@ -73,18 +148,27 @@ class USBSTranslator():
     match = re.search("^(b|bl|blx|bx)(|eq|ne|gt|lt|ge|le|cs|hs|cc|lo|mi|pl|al|nv|vs|vc|hi|ls)(|.w)$", ins.mnemonic)
     if match:
       newins = self.translate_uncond(ins,mapping)
+      newins = self.prepend_pop_register(ins, newins)
       self.process_tbb_block_case(ins, newins, mapping)
+      self.process_tbh_block_case(ins, newins, mapping)
       return newins
 
     elif ins.mnemonic.startswith('it'):  #there is sth wrong with handling that in toggle app at address 8000c3e (ittt ne) in HAL_RCC_ClockConfig function.
       return self.translate_it(ins)
     elif "ldr" in ins.mnemonic:
+      # print("LDR FOUND")
       newins = self.translate_ldr(ins,mapping)
+      # print('newins length after translation: %s'%len(newins))
+      newins = self.prepend_pop_register(ins, newins)
+      # print('newins length after pop register: %s'%len(newins))
       self.process_tbb_block_case(ins, newins, mapping)
+      self.process_tbh_block_case(ins, newins, mapping)
       return newins
     elif ins.mnemonic in ['cbz','cbnz']:
       newins = self.translate_cbz(ins,mapping)
+      newins = self.prepend_pop_register(ins, newins)
       self.process_tbb_block_case(ins, newins, mapping)
+      self.process_tbh_block_case(ins, newins, mapping)
       return newins
 
     #elif ins.mnemonic.startswith('push'): # for ASAN mode uncomment this and next lines (for asan we should uncomment push, pop, str, and bxlr in func translate_uncond)
@@ -101,11 +185,17 @@ class USBSTranslator():
         return self.translate_tbb(ins,mapping)
     elif ins.mnemonic.startswith('tbh'): #you should manually adjust the tbh by yourself with the tbh tool.
       print('Found tbh instruction at 0x%x'%ins.address)
-     # return self.translate_tbh(ins,mapping)
+      if self.context.enable_TBH_instrumentation:
+        return self.translate_tbh(ins,mapping)
     elif ins.mnemonic.startswith('cmp'):
       #print('Found cmp instruction at 0x%x'%ins.address)
       self.push_cmp_block(ins,mapping)
       self.dont_instrument_it_blocks()
+      # TODO: enable the following lines for tbb and tbh offset increase support
+      # newins = self.prepend_pop_register(ins, ins.bytes)
+      # self.process_tbb_block_case(ins, newins, mapping)
+      # self.process_tbh_block_case(ins, newins, mapping)
+      # return newins
       return None
 
 
@@ -117,15 +207,17 @@ class USBSTranslator():
 
 
 
-
     else: #Any other instruction
       if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
         self.it_mask = self.it_mask[1:]
+      newins = self.prepend_pop_register(ins, ins.bytes)
+      self.process_tbb_block_case(ins, newins, mapping)
+      self.process_tbh_block_case(ins, newins, mapping)
       #if(ins.address not in not_insert):
       #  inserted = self.before_inst_callback(ins)
       #if inserted is not None:
       #  return inserted + str(ins.bytes)
-      return None # No translation needs to be done
+      return newins # No translation needs to be done
 
   def translate_tbb_offsets(self, ins, mapping, force_generate=False):
     print("TBB: Hit a TBB breakpoint at %s. Bytes interpreted as a %s instruction"%(hex(ins.address), ins.mnemonic))
@@ -137,10 +229,10 @@ class USBSTranslator():
     else:
       # * Return the correct and padded offsets
       newins = b''
+      block_found = False
       for tbb_block in self.context.tbb_blocks:
-        block_found = False
         if ins.address >= tbb_block['offset_table_addr'] and ins.address < (tbb_block['offset_table_addr'] + tbb_block['table_length']):
-          # print("TBB: Found a case block @ 0x%x"%ins.address)
+          # print("TBB: Found a case entry in table @ 0x%x"%ins.address)
           block_found = True
           offsets = tbb_block['table_offsets'][ins.address - tbb_block['offset_table_addr'] : ins.address - tbb_block['offset_table_addr'] + len(ins.bytes)]
           for i in range(len(offsets)):
@@ -153,6 +245,38 @@ class USBSTranslator():
       # for b in ins.bytes:
       #   newins = b + b'\x00'
       # print("newins after patch: %s len:%d"%(newins, len(newins)))
+      return newins
+
+  def translate_tbh_offsets(self, ins, mapping, force_generate=False):
+    print("TBH: Hit a TBH breakpoint at %s. Bytes interpreted as a %s instruction of length %d"%(hex(ins.address), ins.mnemonic, len(ins.bytes)))
+    # print("ins length: %s"%len(ins.bytes))
+    if force_generate is False and (mapping is None or ins.address not in mapping):
+      newins = ins.bytes * 2 # 2 bytes offsets now become 4 bytes
+      print("length after doubleing the size: %s"%len(newins))
+      return newins
+    else:
+      # * Return the correct and padded addresses
+      newins = b''
+      block_found = False
+      for tbh_block in self.context.tbh_blocks:
+        if ins.address >= tbh_block['offset_table_addr'] and ins.address < (tbh_block['offset_table_addr'] + tbh_block['table_length'] * 2):
+          print("TBH: Found a case entry in table @ 0x%x"%ins.address)
+          block_found = True
+          slice_lower_idx = (ins.address - tbh_block['offset_table_addr']) / 2 # Take the offsets from the current address (myself), / 2 bc 2 bytes per entry
+          slice_higher_idx = (ins.address - tbh_block['offset_table_addr']) / 2 + len(ins.bytes) / 2 # Till the end, / 2 bc 2 bytes per entry
+          offsets = tbh_block['table_offsets'][slice_lower_idx : slice_higher_idx]
+          for i in range(len(offsets)):
+            # TODO: For those having a 0 offset, pick the value from the next one != 0
+            addition = tbh_block['table_offset_additions']
+            print('New address for entry @ %s (newbase + mapping[tbh_block["offset_table_addr"]] + 2 * (offsets[i] + addition)): %s + %s + 2 * (%d + %d) = %s'%(hex(ins.address), hex(self.context.newbase), hex(mapping[tbh_block['offset_table_addr']]), offsets[i], addition, hex(self.context.newbase + mapping[tbh_block['offset_table_addr']] + 2 * (offsets[i] + addition))))
+            newins += struct.pack('<I', self.context.newbase + mapping[tbh_block['offset_table_addr']] + 2 * (offsets[i] + addition)) # I may need to add a +4 according to other code using newbase + mapping
+
+      if not block_found:
+        print("TBH: ERROR: table @%s not found"%hex(ins.address))
+
+      # for b in ins.bytes:
+      #   newins = b + b'\x00'
+      print("newins after patch: %s len:%d"%(newins, len(newins)))
       return newins
 
   def push_cmp_block(self,ins,mapping):
@@ -391,6 +515,8 @@ class USBSTranslator():
       if cases_code_addresses_sorted[0] != tbb_offset_table_addr + tbb_table_length: # if the first case is not adjacent to the end of the table then I assume it is a default case and I should consider it
         print("WARNING: first case address is not the offset table address + table length. Assuming there's the default one there and considering it as an additional case.")
         # ! I'm considering the default case as an additional case but I am not incrcementing the table length / cases count
+        print("  First case address: %s"%hex(cases_code_addresses_sorted[0]))
+        print("  Offset table address: %s + %s = %s"%(hex(tbb_offset_table_addr), hex(tbb_table_length), hex(tbb_offset_table_addr + (tbb_table_length))))
         tbb_cases_lengths.append(cases_code_addresses_sorted[0] - (tbb_offset_table_addr + tbb_table_length))
 
       for i in range(tbb_table_length-1):
@@ -446,13 +572,181 @@ class USBSTranslator():
   
   def translate_tbh(self,ins,mapping):
     #print "this is a tbh address: %s"%hex(ins.address)
-    operator=ins.op_str
-    if "[pc," in operator:
-      tbh_addr =  ins.address + 4
-      if mapping is not None and ins.address in mapping:
-        tbh_addrnew = self.context.newbase + mapping[ins.address] + 4
+    operator = ins.op_str
+    print("operator is %s"%operator)
+
+    # if "[pc," in operator:
+    #   tbh_addr =  ins.address + 4
+    #   if mapping is not None and ins.address in mapping:
+    #     tbh_addrnew = self.context.newbase + mapping[ins.address] + 4
         #print "this is a tbh pc table address: %s"%hex(tbh_addr)
-        #print "this is a new tbh pc table address: %s"%hex(tbh_addrnew)    
+        #print "this is a new tbh pc table address: %s"%hex(tbh_addrnew)
+
+
+    if mapping is None or ins.address not in mapping: # we're creating the mapping so need to learn the tbh structure
+      print("Learning TBH mapping at %s"%ins.address)
+
+      tbh_metadata = {}
+      tbh_metadata['tbh_addr'] = ins.address
+
+      if 'lsl #1]' not in operator:
+        print("ERROR: Unsupported TBH operator (only lsl #1 is supported): %s"%operator)
+        raise NotImplemented("Unsupported TBH operator (only lsl #1 is supported): %s"%operator)
+      
+      if "[pc," in operator:
+        tbh_offset_table_addr =  ins.address + 4
+      else:
+        tbh_offset_table_addr = 0xffffffff
+        print("ERROR: tbh offset table is somewhere else: %s"%operator)
+        raise NotImplemented("tbh offset table is somewhere else: %s"%operator)
+      tbh_metadata['offset_table_addr'] = tbh_offset_table_addr
+
+      # * find the last cmp operand to count the table length and later locate the default case
+      assert(len(self.context.last_cmp_addresses) != 0)
+      addr, cmp_op = self.context.last_cmp_addresses[-1]
+      print("Considering last cmp at %s with value %d"%(hex(addr),int(cmp_op)))
+
+      tbh_table_length = 1 + cmp_op # in units, not bytes
+
+      tbh_metadata['table_length'] = tbh_table_length
+
+      # * read the tbh_table_length offsets
+      tbh_table_offsets = []
+      for i in range(tbh_table_length):
+        tbh_table_offsets.append(self.context.read_two_bytes(tbh_offset_table_addr + i * 2)) # 2 bytes offset
+      tbh_metadata['table_offsets'] = tbh_table_offsets 
+
+      # * each offset needs to be increased to account for the double size of all the offsets
+      tbh_metadata['table_offset_additions'] = len(tbh_table_offsets) #* 2
+
+      # print('Old offsets: %s'%tbh_metadata['original_table_offsets'])
+      # print('New offsets: %s'%tbh_metadata['table_offsets'])
+
+      tbh_cases_code_addresses = []
+      for i in range(tbh_table_length):
+        tbh_cases_code_addresses.append(tbh_offset_table_addr + (tbh_table_offsets[i] * 2))
+      tbh_metadata['cases_addresses'] = tbh_cases_code_addresses
+      #print([hex(a) for a in tbh_metadata['cases_addresses']])
+
+      # * Compute case blocks lengths
+      cases_code_addresses_sorted = sorted(tbh_cases_code_addresses)
+
+      tbh_cases_lengths = []
+      
+      if cases_code_addresses_sorted[0] != tbh_offset_table_addr + (tbh_table_length * 2): # if the first case is not adjacent to the end of the table then I assume it is a default case and I should consider it
+        print("WARNING: first case address is not the offset table address + table length. Assuming there's the default one there and considering it as an additional case.")
+        print("  First case address: %s"%hex(cases_code_addresses_sorted[0]))
+        print("  Offset table address: %s + (%s * 2) = %s"%(hex(tbh_offset_table_addr), hex(tbh_table_length), hex(tbh_offset_table_addr + (tbh_table_length * 2))))
+        # ! I'm considering the default case as an additional case but I am not incrcementing the table length / cases count
+        tbh_cases_lengths.append(cases_code_addresses_sorted[0] - (tbh_offset_table_addr + (tbh_table_length * 2))) # 2 bytes offset
+
+      for i in range(tbh_table_length-1):
+        tbh_cases_lengths.append(cases_code_addresses_sorted[i+1] - cases_code_addresses_sorted[i])
+
+      tbh_metadata['cases_lengths'] = tbh_cases_lengths
+      tbh_metadata['sorted_cases_addresses'] = cases_code_addresses_sorted
+      
+      # * Save default case address for patching the branch (bhi) to it, if not already done somewhere else
+      if cases_code_addresses_sorted[0] != tbh_offset_table_addr + (tbh_table_length * 2): # save it if is right after the branch table
+        tbh_metadata['default_case_addr'] = tbh_offset_table_addr + (tbh_table_length * 2)
+      else: # take the value from the branch right after the last cmp
+        assert(len(self.context.last_branch_addresses) != 0)
+        addr, branch_target_address = self.context.last_branch_addresses[-1]
+        print("Considering last branch at %s to target address %s"%(hex(addr),hex(branch_target_address)))
+        tbh_metadata['default_case_addr'] = branch_target_address # or addr + branch_target_offset
+
+      assert('tbh_addr' in tbh_metadata)
+      assert('offset_table_addr' in tbh_metadata)
+
+
+      # * add breakpoints to detect when disassembling tables bytes to patch them
+      for i in range(tbh_table_length * 2):
+        self.context.add_tbh_table_breakpoint(tbh_offset_table_addr + 1 * i, 1) # we add also the addresses of lower bytes to detect them is the disassembler considers the higher as part of a longer instruction
+
+      # print(self.context.tbh_table_breakpoints)
+
+      # * assemble and return the new tbh instruction 
+      # Here I should replace the tbh instruction with an ADR + LDR
+      # new_operator = operator[:-1] + ", lsl #1]"
+
+      arm_v7_gp_regs = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12']
+      # pick a register not used as index in the table
+      index_register = operator.split(', ')[1]
+      # remove the_register from the list
+      assert(index_register in arm_v7_gp_regs)
+      arm_v7_gp_regs.remove(index_register)
+      # register to store table address
+      table_address_register = arm_v7_gp_regs[0]
+
+      tbh_metadata['table_address_register'] = table_address_register
+
+      print(tbh_metadata)
+      self.context.tbh_blocks.append(tbh_metadata)
+
+      # backup the table address register to the stack
+      # ! Later I will need to restore it in each case (including the default one)
+      # TODO: For every instruction which is at the beginning of a case, I need to prepend a pop {table_address_register} instruction
+      code = _asm( 'push {%s}'%(table_address_register),self.context.newbase)
+      code += _asm( 'nop',self.context.newbase) # TODO: This is for instructions alignment. Need to dinamically calculate the number of nops needed
+      # TODO: MAY NEED TO FIX THE TABLE LOCATION HERE
+
+      new_adr_operator = table_address_register + ", #8"
+      print("New adr operator: %s"%new_adr_operator)
+      # code += _asm( 'adr %s'%(new_adr_operator),self.context.newbase)
+      adr_code = _asm( 'adr %s'%(new_adr_operator),self.context.newbase)
+      adr_code = adr_code[:2] + '\x04' + adr_code[3:] # replace the third byte with 0
+      code += adr_code
+
+      new_ldr_operator = "pc, [" + table_address_register + ', ' + index_register + ", lsl #2]" # lsl #2 for a word offset
+      print("New ldr operator: %s"%new_ldr_operator)
+      code += _asm( 'ldr %s'%(new_ldr_operator),self.context.newbase) # pc, [r3,r0,LSL#2]
+
+      print("New tbh->adr|ldr code length before mapping: %d" % len(code))
+
+      return code
+      # return None
+
+      # I should replace the tbh instruction with an ADR + LDR
+      # Then I need to convert the offsets in the table to absolute addresses: Before or after the offset increments? After should be ok and easier to do
+      # Increment them as I would have done for offsets
+      # Write them down in the new table
+    
+    else:
+      if ins.address in mapping:
+        vmabase=self.context.newbase+mapping[ins.address]
+
+        arm_v7_gp_regs = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12']
+        # pick a register not used as index in the table
+        index_register = operator.split(', ')[1]
+        # remove the_register from the list
+        assert(index_register in arm_v7_gp_regs)
+        arm_v7_gp_regs.remove(index_register)
+        # register to store table address
+        table_address_register = arm_v7_gp_regs[0]
+
+        print("Generating TBH->ADR|LDR code at %s"%hex(ins.address))
+        code = _asm( 'push {%s}'%(table_address_register),self.context.newbase)
+        code += _asm( 'nop',self.context.newbase) # TODO: This is for instructions alignment. Need to dinamically calculate the number of nops needed
+
+        new_adr_operator = table_address_register + ", #8"
+        print("New adr operator: %s"%new_adr_operator)
+        # code += _asm( 'adr %s'%(new_adr_operator),self.context.newbase)
+        adr_code = _asm( 'adr %s'%(new_adr_operator),self.context.newbase)
+        adr_code = adr_code[:2] + '\x04' + adr_code[3:] # replace the third byte with 0
+        code += adr_code
+
+        new_ldr_operator = "pc, [" + table_address_register + ', ' + index_register + ", lsl #2]" # lsl #2 for a word offset
+        print("New ldr operator: %s"%new_ldr_operator)
+        code += _asm( 'ldr %s'%(new_ldr_operator),self.context.newbase) # pc, [r3,r0,LSL#2]
+
+        print("New tbh->adr|ldr code length after mapping: %d" % len(code))
+
+        return code
+
+      else:
+        print("ERROR: TBH->ADR|LDR address %s is not in the mapping"%hex(ins.address))
+        raise Exception("TBH->ADR|LDR address %s is not in the mapping"%hex(ins.address))
+
 
     
   def translate_ldr(self,ins,mapping):
@@ -527,13 +821,19 @@ class USBSTranslator():
           if reg != "sp" and not it_status:
             #print template%(reg,newtarget_low_addr, reg, newtarget_high_addr, reg, reg)
             code += _asm( template%(reg,newtarget_low_addr, reg, newtarget_high_addr, reg, reg),vmabase  ) 
+            # if hex(ins.address) == '0x80001c2':
+            #   print(template%(reg,newtarget_low_addr, reg, newtarget_high_addr, reg, reg))
             return code
           else: 
             if ".w" not in ins.mnemonic:
               code += _asm( '%s.w %s'%(ins.mnemonic,operator),vmabase  )  
+              # if hex(ins.address) == '0x80001c2':
+                # print('%s.w %s'%(ins.mnemonic,operator))
               return code
             else:
               code += _asm( '%s %s'%(ins.mnemonic,operator),vmabase  )  
+              # if hex(ins.address) == '0x80001c2':
+                # print('%s.w %s'%(ins.mnemonic,operator))
               return code  
 
         #if ".w" not in ins.mnemonic:  
@@ -541,6 +841,7 @@ class USBSTranslator():
         #  return code
         if reg != "sp" and not it_status:
           code += _asm( template%(reg,newtarget_low_addr, reg, newtarget_high_addr, reg, reg),self.context.newbase  )
+          # print(template%(reg,newtarget_low_addr, reg, newtarget_high_addr, reg, reg))
           return code
         else: 
           if ".w" not in ins.mnemonic:

@@ -43,13 +43,18 @@ class USBSMapper():
       if ins is not None:
         if ins.address in self.context.get_tbb_table_breakpoints_addresses(): # This is for patching TBB offset tables
           newins = self.translator.translate_tbb_offsets(ins,mapping)
-          # print("Patching TBB offset table at 0x%x with new bytes %s"%(ins.address, str(newins)))
+          print("Patching TBB offset table at 0x%x with new bytes %s"%(ins.address, str(newins)))
+        elif ins.address in self.context.get_tbh_table_breakpoints_addresses(): # This is for patching TBH offset tables
+          newins = self.translator.translate_tbh_offsets(ins,mapping)
+          print("Patching TBH offset table at 0x%x with new bytes %s"%(ins.address, str(newins)))
         else:
           newins = self.translator.translate_one(ins,None)
         if newins is not None:
           currmap[ins.address] = len(newins)
+          # print('Translated instruction at 0x%x: len = %d, bytes: %s'%(ins.address,len(newins), str(ins.bytes)))
         else:
           currmap[ins.address] = len(ins.bytes)  
+          # print('NOT Translated instruction at 0x%x: len = %d, bytes: %s'%(ins.address,len(ins.bytes), str(ins.bytes)))
     self.context.lookup_function_offset = 0 
     lookup_size = len(self.runtime.get_lookup_code(self.base,0x8f))
     offset = lookup_size
@@ -62,7 +67,7 @@ class USBSMapper():
     mapping[self.context.lookup_function_offset] = self.context.lookup_function_offset
     mapping[len(self.bytes)+self.base] = offset
     print ('final offset for mapping is: 0x%x' % offset)
-    print (self.context.not_trans)
+    # print (self.context.not_trans) # [hex(x) for x in self.context.not_trans]
     return mapping
 
   def gen_newcode(self,mapping):
@@ -78,19 +83,30 @@ class USBSMapper():
         bytemap[ins[0]] = str(ins[1])
         continue
       if ins is not None:
+        # if ins.address == 0x080920b6: # TODO: remove me, only for debg
+        #   print ('AAAAAAAAAAAAAAAAAAAAAAA found it')
         if ins.address in self.context.get_tbb_table_breakpoints_addresses(): # This is for patching TBB offset tables
           newins = self.translator.translate_tbb_offsets(ins,mapping, True)
           bytemap[ins.address] = newins
           # print('Patching TBB offset table at 0x%x with new bytes %s'%(ins.address, str(newins)))
+        elif ins.address in self.context.get_tbh_table_breakpoints_addresses(): # This is for patching TBH offset tables
+          newins = self.translator.translate_tbh_offsets(ins,mapping, True)
+          bytemap[ins.address] = newins
+          # print('Patching TBH offset table at 0x%x with new bytes %s'%(ins.address, str(newins)))
         else:
           newins = self.translator.translate_one(ins,mapping)
           if newins is not None and ins.address not in self.context.not_trans:
             currentaddr = ins.address + len(newins)
+            # print("len(newins): %d"%len(newins))
             bytemap[ins.address] = newins 
           else:
             currentaddr = ins.address + len(ins.bytes)
             #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
+            # print("len(newins): %d"%len(ins.bytes))
             bytemap[ins.address] = str(ins.bytes)
+      # print(hex(ins.address))
+      # if hex(ins.address) == '0x80001c2':
+      #   exit(0)
     newbytes+=self.runtime.get_lookup_code(self.base,mapping[self.context.mapping_offset])
     for k in sorted(bytemap.keys()): 
       newbytes+=bytemap[k]

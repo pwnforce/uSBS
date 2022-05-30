@@ -303,8 +303,8 @@ class USBSTranslator():
     for k in self.context.flist.keys():
       if ins.address == k :
         print ("This is an instruction at the beginning of function ", self.context.flist[k]["name"])
-        break
-    return currfunc
+        return True
+    return False
 
   def translate_str(self,ins,mapping):
     #print "1str"

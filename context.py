@@ -11,7 +11,7 @@ class Context(object):
     self.mapping_offset = 0x8f
     self.stackaddr = 0x20000020
     self.new_entry_off = 0x8f
-    self.indirect_branch = (lambda x: None)
+    # self.indirect_branch = (lambda x: None)
     self.func_beginning = (lambda x: None)
     self.before_ret = (lambda x: None)
     self.flist = {}

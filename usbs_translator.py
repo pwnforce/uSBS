@@ -949,7 +949,13 @@ class USBSTranslator():
     str r0, [sp,#-8]
     ldr r0, [sp,#-64]
     add lr, pc, #5
-    ldr pc, [sp,#-8]
+    mov r0, [sp,#-8]
+    ldr r0, [sp,#-64-4]
+    str r2, [sp, #-96]
+    mov.w r2, #0x10
+    push r2 
+    ldr r2, [sp, #-96-4]
+    svc 255
     ''' # we add 4 + 1 to the link register for the thumb bit
     # TODO: we should add the +1 depending if we're manipulating addresses referring to thumb or normal arm assembly. This is doable at instrumentation time.
  

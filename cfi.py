@@ -7,15 +7,15 @@ from usbs import Rewriter
 from usbs_assembler import _asm,ks_asm
 
 
-def indirect_branch():
-  temp = '''
-    str r2, [sp, #-96]
-    mov.w r2, #0x10
-    push r2
-    ldr r2, [sp, #-96] 
-    svc 255 
-  '''
-  return _asm(temp, 0x08100000 )
+# def indirect_branch():
+#   temp = '''
+#     str r2, [sp, #-96]
+#     mov.w r2, #0x10
+#     push r2
+#     ldr r2, [sp, #-96] 
+#     svc 255 
+#   '''
+#   return _asm(temp, 0x08100000 )
 
 def func_beginning():
   temp = '''
@@ -24,7 +24,7 @@ def func_beginning():
     mov.w r2, #0x20 
     push r2 
     push r2 
-    ldr r2, [sp, #-96] 
+    ldr r2, [sp, #-96-12] 
     svc 255 
   '''
   return _asm( temp%(regnum*4), 0x08100000 )
@@ -35,7 +35,7 @@ def ret():
     mov.w r2, #0x21 
     push r2 
     push r2 
-    ldr r2, [sp, #-96] 
+    ldr r2, [sp, #-96-8] 
     svc 255 
   '''
   return _asm( temp%(regnum*4), 0x08100000 )
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     entry_point = e.header.e_entry
     f.close()
     rewriter = Rewriter()
-    rewriter.set_indirect_branch(indirect_branch)
+    # rewriter.set_indirect_branch(indirect_branch)
     rewriter.set_func_beginning(func_beginning)
     rewriter.set_before_ret(ret)
     rewriter.rewrite(sys.argv[1],'arm')

@@ -18,8 +18,8 @@ class Rewriter(object):
 
   def __init__(self):
     self.context = Context()
-  def set_indirect_branch(self,func):
-    self.context.indirect_branch = func
+  # def set_indirect_branch(self,func):
+  #   self.context.indirect_branch = func
   def set_func_beginning (self, func):
     self.context.func_beginning = func
   def set_before_ret(self,func):

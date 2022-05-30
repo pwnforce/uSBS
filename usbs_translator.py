@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from distutils.ccompiler import new_compiler
 from shutil import ExecError
 from sys import dont_write_bytecode
@@ -128,15 +129,7 @@ class USBSTranslator():
 
     
   def translate_one(self,ins,mapping):
-    #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))s
-
-    #if len(self.it_mask) > 0:
-    #  print "It Mask:%s"%self.it_mask
-    #  if self.it_mask[0] == 't':
-    #    it_insert = self.it_bytes[self.it_cond]
-    #  if self.it_mask[0] == 'e':
-    #    it_insert = self.it_bytes[self.opposite[self.it_cond]]
-    #  self.it_mask = self.it_mask[1:]
+    #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
 
     match = re.search("^(b|bl|blx|bx)(|eq|ne|gt|lt|ge|le|cs|hs|cc|lo|mi|pl|al|nv|vs|vc|hi|ls)(|.w)$", ins.mnemonic)
     if match:
@@ -146,7 +139,7 @@ class USBSTranslator():
       self.process_tbh_block_case(ins, newins, mapping)
       return newins
 
-    elif ins.mnemonic.startswith('it'):  #there is sth wrong with handling that in toggle app at address 8000c3e (ittt ne) in HAL_RCC_ClockConfig function.
+    elif ins.mnemonic.startswith('it'):  
       return self.translate_it(ins)
     elif "ldr" in ins.mnemonic:
       # print("LDR FOUND")
@@ -163,14 +156,6 @@ class USBSTranslator():
       self.process_tbb_block_case(ins, newins, mapping)
       self.process_tbh_block_case(ins, newins, mapping)
       return newins
-
-    #elif ins.mnemonic.startswith('push'): # for ASAN mode uncomment this and next lines (for asan we should uncomment push, pop, str, and bxlr in func translate_uncond)
-    #  return self.translate_push(ins,mapping)
-    #elif ins.mnemonic.startswith('pop'):  # for ASAN mode uncomment this and next lines
-    #  return self.translate_pop(ins,mapping)
-    #elif ins.mnemonic.startswith('str'):  # for ASAN mode uncomment this and next lines
-    #  return self.translate_str(ins,mapping)
-   
       
     elif ins.mnemonic.startswith('tbb'): #you should manually adjust the tbb by yourself with the tbb tool.
       print('Found tbb instruction at 0x%x'%ins.address)
@@ -191,14 +176,8 @@ class USBSTranslator():
       # return newins
       return None
 
-
-    #elif ins.address == 0x8000f9e: #temporaryyyyy
-    #  inserted= None #temporaryyyyy
-     # code= b'' #temporaryyyyy
-     # inserted =  self.before_malloc(ins)   + "\x41\x41\x41\x41\x5d\xf8\xa0\x3c" #temporaryyyyy
-     # return inserted + str(ins.bytes) #temporaryyyyy
-
-
+    elif self.is_func_beginning (ins):
+      return self.translate_func_beginning(ins,mapping)
 
     else: #Any other instruction
       if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
@@ -320,7 +299,12 @@ class USBSTranslator():
       currfunc = prevfunc
     return currfunc
 
-
+  def is_func_beginning(self,ins):
+    for k in self.context.flist.keys():
+      if ins.address == k :
+        print ("This is an instruction at the beginning of function ", self.context.flist[k]["name"])
+        break
+    return currfunc
 
   def translate_str(self,ins,mapping):
     #print "1str"
@@ -349,28 +333,32 @@ class USBSTranslator():
 
     if ins.mnemonic != "strd":
       if opcnt == 2:
-        inserted =  self.before_str(ins, operands [1], None, None, self.context.stackaddr, operands [0])  
+        inserted =  self.context.before_str(ins, operands [1], None, None, self.context.stackaddr, operands [0])  
         #print "inserted%s"%inserted
         return inserted + str(ins.bytes)
       elif opcnt == 3:
-        inserted = self.before_str(ins, operands [1], operands [2],None, self.context.stackaddr, operands [0]) 
+        inserted = self.context.before_str(ins, operands [1], operands [2],None, self.context.stackaddr, operands [0]) 
         #print "inserted%s"%inserted
         return inserted + str(ins.bytes)
       elif opcnt == 4:
-        inserted =  self.before_str(ins, operands [1], operands [2], operands[3], self.context.stackaddr, operands [0])  
+        inserted =  self.context.before_str(ins, operands [1], operands [2], operands[3], self.context.stackaddr, operands [0])  
         #print "inserted%s"%inserted
         return inserted + str(ins.bytes)
     else:
       if opcnt == 3:
-        inserted =  self.before_strd(ins, operands [2], None, self.context.stackaddr, operands [0], operands [1])  
+        inserted =  self.context.before_strd(ins, operands [2], None, self.context.stackaddr, operands [0], operands [1])  
         #print "inserted%s"%inserted
         return inserted + str(ins.bytes)
       elif opcnt == 4:
-        inserted =  self.before_strd(ins, operands [2], operands [3], self.context.stackaddr, operands [0], operands [1])
+        inserted =  self.context.before_strd(ins, operands [2], operands [3], self.context.stackaddr, operands [0], operands [1])
         #print "inserted%s"%inserted
         return inserted + str(ins.bytes)
 
-
+  def translate_func_beginning (self,ins,mapping):
+    if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
+      self.it_mask = self.it_mask[1:]
+      return None
+    return self.context.func_beginning(ins) + str(ins.bytes)
 
   def translate_pop(self,ins,mapping):
     if len(self.it_mask) > 0: #this is for dont instrumenting in IT block
@@ -388,7 +376,7 @@ class USBSTranslator():
       if currfunc == self.lastpoisonedfunc:
         #print("0x%x:\t%s\t%s" %(ins.address, ins.mnemonic, ins.op_str))
         #print "pop %s"%opcnt
-        inserted = "\x4d\xf8\x80\x2c\xef\xf3\x00\x82" + self.before_ret(ins, opcnt-1)   + "\x82\xf3\x00\x88\x5d\xf8\x80\x2c"
+        inserted = "\x4d\xf8\x80\x2c\xef\xf3\x00\x82" + self.context.before_ret(ins, opcnt-1)   + "\x82\xf3\x00\x88\x5d\xf8\x80\x2c"
         return inserted + str(ins.bytes)
     return None
   
@@ -414,7 +402,7 @@ class USBSTranslator():
     if "lr" in operator:
       currfunc = self.get_current_func(ins)
       self.lastpoisonedfunc = currfunc
-      inserted = "\x4d\xf8\x80\x2c\xef\xf3\x00\x82" + self.before_push(ins) + "\x82\xf3\x00\x88\x5d\xf8\x80\x2c"
+      inserted = "\x4d\xf8\x80\x2c\xef\xf3\x00\x82" + self.context.before_push(ins) + "\x82\xf3\x00\x88\x5d\xf8\x80\x2c"
       return inserted + str(ins.bytes)
     return None
 

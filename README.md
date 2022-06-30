@@ -15,18 +15,10 @@ To simplify the setup, we provide a Dockerfile with which you can enjoy an alrea
 
 ## Starting the container
 
-1. Clone and `cd` into this repo.
-2. Build the docker image:
-
-    ```bash
-    docker build -t usbs .
-    ```
-
-3. Once the image has been built, run it. Make sure to pass the path of the folder containing the elf firmware you want to instrument through the `-v` flag.
-
-    ```bash
-    docker run -it -v $(realpath <path_to_elf_folder>):/elf --rm usbs:latest
-    ```
+1. `git clone` and `cd` into this repo.
+2. `make run` will build the Docker images specified `Dockerfile` and run a
+   container. See `Makefile` for parameters.
+3. Within the container you will have access to `usbs`: `python -m usbs -h`
 
 ## Executing μSBS
 

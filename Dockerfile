@@ -7,10 +7,6 @@ RUN python2 -m pip install --upgrade pip
 RUN pip install setuptools --upgrade
 RUN pip install pathlib2 lief==0.8.0.post7 pwntools==4.3.1 keystone-engine==0.9.2 six==1.16.0
 
-COPY . /uSBS
-
-VOLUME /elf
-
 ENV TERM=linux
 ENV TERMINFO=/etc/terminfo
-WORKDIR /uSBS
+WORKDIR /root

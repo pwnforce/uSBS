@@ -1,5 +1,10 @@
 import argparse
+import logging
 from . import usbs
+
+logging.basicConfig(level="DEBUG")
+
+log = logging.getLogger(__name__)
 
 
 def parse():

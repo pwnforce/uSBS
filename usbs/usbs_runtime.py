@@ -1,4 +1,5 @@
-from usbs_assembler import _asm
+from usbs_assembler import asm
+
 
 class USBSRuntime(object):
   def __init__(self,context):
@@ -27,7 +28,8 @@ class USBSRuntime(object):
 	# arm assembly. It is safe to assume it is always thumb in arm IoT but it's a todo. Probably it could
 	# not be done at instrumentation 	# time, or we should setup two routines, one for thumb destinations
 	# and one not.
-	return _asm( lookup%(self.context.newbase,base,mapping_off-4), self.context.newbase )
+	return asm(lookup % (self.context.newbase, base, mapping_off-4), self.context.newbase)
+
 
 
 	# * get_lookup_code breakdown:

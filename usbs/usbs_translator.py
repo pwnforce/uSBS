@@ -8,6 +8,9 @@ import struct
 u16 = lambda x: struct.unpack("<H", x)[0]
 u32 = lambda x: struct.unpack("<I", x)[0]
 
+# check if bit at `idx` is set int `val`
+is_set = lambda val, idx: (val >> idx) & 0b1
+
 from capstone.arm import (
     ARM_CC_EQ,
     ARM_CC_NE,
@@ -89,6 +92,10 @@ class USBSTranslator:
         #  self.it_mask = self.it_mask[1:]
 
         transplantable = self._is_transplantable(ins)
+        if not transplantable:
+            import ipdb
+
+            ipdb.set_trace()
 
         pattern = "^(b|bl|blx|bx)"
         pattern += "(|eq|ne|gt|lt|ge|le|cs|hs|cc|lo|mi|pl|al|nv|vs|vc|hi|ls)"
@@ -354,36 +361,42 @@ class USBSTranslator:
         ienc = u16(ins.bytes)
         if ienc >> 13 == 0 and ienc >> 11 != 0b11:
             # Shift by immediate, move register
-            log.debug(
-                "sh imm or mov reg: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "sh imm or mov reg: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> 10 == 0b000110:
             # Add / subtract register
-            log.debug("add/sub reg: {} {}".format(ins.mnemonic, ins.op_str))
+            # log.debug("add/sub reg: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = True
         elif ienc >> 10 == 0b000111:
             # Add / subtract immediate
-            log.debug(
-                "add/sub immediate: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "add/sub immediate: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> 13 == 0b001:
             # Add / subtract / compare / move immediate
-            log.debug(
-                "add/sub/cmp/mv immediate: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
+            # log.debug(
+            #     "add/sub/cmp/mv immediate: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
         elif ienc >> 10 == 0b010000:
             # Data-processing register
-            log.debug(
-                "data-processing reg: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "data-processing reg: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> 10 == 0b010001 and (ienc >> 8) & 0b11 != 0b11:
             # Special data processing
-            log.debug(
-                "special data processing: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
+            # log.debug(
+            #     "special data processing: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
         elif ienc >> 8 == 0b01000111:
             # Branch/exchange instruction set
             log.debug(
@@ -391,73 +404,174 @@ class USBSTranslator:
                     ins.mnemonic, ins.op_str
                 )
             )
+            # Potential side effects:
+            # * On Cortex-A, switch from T32 to A32 depending on bit[0]
+            #   of target address. A32 is not present on Cortex-M and a switch
+            #   like this will cause an abort.
+            # * Wold switch on Cortex-M between secure/non-secure state.
+            transplantable = True
         elif ienc >> 11 == 0b01001:
             # Load from literal pool
-            log.debug(
-                "load from literal pool: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "load from literal pool: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> 12 == 0b0101:
             # Load/store register offset
-            log.debug(
-                "load/store register offset: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
+            # log.debug(
+            #     "load/store register offset: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
         elif ienc >> 13 == 0b011:
             # Load/store word/byte immediate offset
-            log.debug(
-                "load/store word/byte immediate offset: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
+            # log.debug(
+            #     "load/store word/byte immediate offset: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
         elif ienc >> 12 == 0b1000:
             # Load/store halfword immediate offset
-            log.debug(
-                "load/store halfword immediate offset: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
+            # log.debug(
+            #     "load/store halfword immediate offset: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
         elif ienc >> 12 == 0b1001:
             # load/store stack
-            log.debug(
-                "load/store stack: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "load/store stack: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> 12 == 0b1010:
             # add to sp or pc
-            log.debug("add to sp or pc: {} {}".format(ins.mnemonic, ins.op_str))
+            # log.debug("add to sp or pc: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = True
         elif ienc >> 12 == 0b1011:
             # misc
             # TODO: need to handle misc insns
             log.debug("misc: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = self._is_transplantable16_misc(ins)
         elif ienc >> 12 == 0b1100:
             # load/store mutliple
-            log.debug(
-                "load/store mutliple: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "load/store mutliple: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> 12 == 0b1101 and ((ienc >> 9) & 0b111) != 0b111:
             # conditional branch
-            log.debug(
-                "conditional branch: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "conditional branch: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> 8 == 0b11011110:
             # undefined insn
             log.debug("undefined insn: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = False
         elif ienc >> 8 == 0b11011111:
             # service system call
             log.debug(
                 "service system call: {} {}".format(ins.mnemonic, ins.op_str)
             )
+            transplantable = False
         elif ienc >> 11 == 0b11100:
             # unconditional branch
             log.debug(
                 "unconditional branch: {} {}".format(ins.mnemonic, ins.op_str)
             )
+            transplantable = True
         else:
             log.debug("unknown16: {} {}".format(ins.mnemonic, ins.op_str))
             log.error("Our insn decoding is incomplete, if we end up here.")
             import ipdb
+
             ipdb.set_trace()
 
+        return transplantable
+
+    def _is_transplantable16_misc(self, ins):
+        ienc = u16(ins.bytes)
+        assert ienc >> 12 == 0b1011, "Not a misc insn"
+        transplantable = False
+
+        if ienc >> 8 == 0b10110000:
+            # Adjust stack pointer
+            # log.debug(
+            #     "adjust stack pointer: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
+        elif ienc >> 8 == 0b10110010:
+            # Sign/zero extend
+            # log.debug(
+            #     "sign/zero extend: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
+        elif ienc >> 12 == 0b1011 and not is_set(ienc, 10) and is_set(ienc, 8):
+            # Compare and branch on non-zero
+            # log.debug(
+            #     "compare and branch on non-zero: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
+        elif ienc >> 12 == 0b1011 and is_set(ienc, 10) and not is_set(ienc, 9):
+            # Push / pop reg list
+            # log.debug(
+            #     "push / pop reg list: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
+        elif ienc >> 4 == 0b101101100100:
+            # Unpredictable
+            log.debug("unpredictable: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = False
+        elif ienc >> 4 == 0b101101100101:
+            # Set endianess
+            log.debug("set endianess: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = False
+        elif ienc >> 5 == 0b10110110011 and ((ienc >> 3) & 0b1) == 0:
+            # Change processor state
+            log.debug(
+                "change processor state: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+            transplantable = False
+        elif ienc >> 5 == 0b10110110011 and is_set(ienc, 3):
+            # Unpredictable
+            log.debug("unpredictable: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = False
+        elif ienc >> 8 == 0b10111010:
+            # Reverse bytes
+            log.debug("reverse bytes: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = True
+        elif ienc >> 8 == 0b10111110:
+            # Software breakpoint
+            log.debug(
+                "software breakpoint: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+            transplantable = False
+        elif ienc >> 8 == 0b10111111 and ienc & 0b1111 != 0b0000:
+            # If-Then insns
+            log.debug("if-then insns: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = True
+        elif ienc >> 8 == 0b10111111 and ienc & 0b1111 == 0b0000:
+            # NOP-compatbile hints
+            if ienc & 0b11111111 == 0:
+                # just a nop
+                transplantable = True
+            else:
+                # yield, wait for event, wait for interrupt, send event
+                log.debug(
+                    "nop-compatbile hints: {} {}".format(
+                        ins.mnemonic, ins.op_str
+                    )
+                )
+                transplantable = False
+        else:
+            log.debug("unknown16: {} {}".format(ins.mnemonic, ins.op_str))
+            log.error("Our insn decoding is incomplete, if we end up here.")
+            import ipdb
+
+            ipdb.set_trace()
         return transplantable
 
     def _is_transplantable32(self, ins):
@@ -471,55 +585,59 @@ class USBSTranslator:
         # import ipdb
 
         # ipdb.set_trace()
-        if ienc >> (11 + 16) == 0b11110 and ((ienc >> 15) & 0b1) == 0b0:
+        if ienc >> (11 + 16) == 0b11110 and not is_set(ienc, 15):
             # Data processing: immediate, including bitfield, and saturate
-            log.debug(
-                "data processing imm, bitfield, saturate: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
+            # log.debug(
+            #     "data processing imm, bitfield, saturate: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
         elif (
             ienc >> (13 + 16) == 0b111 and ((ienc >> (9 + 16)) & 0b111) == 0b101
         ):
             # Data processing no immediate operand
-            log.debug(
-                "data processing no imm: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "data processing no imm: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
+            transplantable = True
         elif ienc >> (9 + 16) == 0b1111100:
             # Load and store single data item
-            log.debug(
-                "load and store single data item: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
-        elif (
-            ienc >> (9 + 16) == 0b1110100 and ((ienc >> (6 + 16)) & 0b1) == 0b1
-        ):
+            # log.debug(
+            #     "load and store single data item: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
+        elif ienc >> (9 + 16) == 0b1110100 and is_set(ienc, 6 + 16):
             # Load and store, double and exclusive, and table branch
-            log.debug(
-                "load and store, double and exclusive, and table branch: {} {}".format(
-                    ins.mnemonic, ins.op_str
-                )
-            )
-        elif (
-            ienc >> (9 + 16) == 0b1110100 and ((ienc >> (6 + 16)) & 0b1) == 0b0
-        ):
+            # log.debug(
+            #     "load and store, double and exclusive, and table branch: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
+        elif ienc >> (9 + 16) == 0b1110100 and not is_set(ienc, 6 + 16):
             # Load and store multiple, RFE and SRS
-            log.debug(
-                "load and store multiple, RFE and SRS: {} {}".format(
-                    ins.mnemonic, ins.op_str
+            if is_set(ienc, 8) == is_set(ienc, 7):
+                # V != U (see manual)
+                transplantable = True
+            else:
+                log.debug(
+                    "load and store multiple, RFE and SRS: {} {}".format(
+                        ins.mnemonic, ins.op_str
+                    )
                 )
-            )
-        elif ienc >> (11 + 16) == 0b11110 and ((ienc >> 15) & 0b1) == 0b1:
+                transplantable = False
+        elif ienc >> (11 + 16) == 0b11110 and is_set(ienc, 15):
             # Branches, misc control
-            log.debug(
-                "branches, misc control: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            transplantable = self._is_transplantable32_misc(ins)
         elif (
             ienc >> (13 + 16) == 0b111 and (ienc >> (8 + 16)) & 0b1111 == 0b1111
         ):
             # co-processor
             log.debug("co-processor: {} {}".format(ins.mnemonic, ins.op_str))
+            transplantable = False
         else:
             log.debug("unknown32: {} {}".format(ins.mnemonic, ins.op_str))
             log.error("Our insn decoding is incomplete, if we end up here.")
@@ -527,6 +645,75 @@ class USBSTranslator:
 
             ipdb.set_trace()
 
+        return transplantable
+
+    def _is_transplantable32_misc(self, ins):
+        assert len(ins.bytes) == 4, "expecting 4 bytes instead of {}".format(
+            len(ins.bytes)
+        )
+        ienc = u16(ins.bytes[:2]) << 16 | u16(ins.bytes[2:])
+        assert ienc >> (11 + 16) == 0b11110, "expecting 0b11110 insn prefix"
+
+        transplantable = False
+
+        if is_set(ienc, 15) and not is_set(ienc, 14) and is_set(ienc, 12):
+            # Branch
+            # log.debug(
+            #     "branch: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
+        elif is_set(ienc, 15) and is_set(ienc, 14) and is_set(ienc, 12):
+            # Branch with link
+            # log.debug(
+            #     "branch with link: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
+        elif (
+            is_set(ienc, 15)
+            and is_set(ienc, 14)
+            and not is_set(ienc, 12)
+            and not is_set(ienc, 0)
+        ):
+            # Branch with link change to ARM
+            # log.debug(
+            #     "branch with link change to arm: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = False
+        elif (
+            is_set(ienc, 15)
+            and is_set(ienc, 14)
+            and not is_set(ienc, 12)
+            and is_set(ienc, 0)
+        ):
+            # Reserved
+            # log.debug(
+            #     "reserved: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = False
+        elif is_set(ienc, 15) and not is_set(ienc, 14) and not is_set(ienc, 12):
+            # Conditional branch
+            # log.debug(
+            #     "conditional branch: {} {}".format(
+            #         ins.mnemonic, ins.op_str
+            #     )
+            # )
+            transplantable = True
+        else:
+            # Other 32-bit ctrl insns
+            log.debug(
+                "other 32-bit ctrl insns: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+            transplantable = False
         return transplantable
 
     def _process_tbb_block_case(self, ins, newins, mapping):

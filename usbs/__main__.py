@@ -2,7 +2,13 @@ import argparse
 import logging
 from . import usbs
 
-logging.basicConfig(level="DEBUG")
+# project-global log configuration
+logging.basicConfig(
+    format="%(asctime)s,%(msecs)d %(levelname)-8s "
+    "[%(filename)s:%(lineno)d] %(message)s",
+    datefmt="%Y-%m-%d:%H:%M:%S",
+    level="DEBUG",
+)
 
 log = logging.getLogger(__name__)
 

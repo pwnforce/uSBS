@@ -93,9 +93,7 @@ class USBSTranslator:
 
         transplantable = self._is_transplantable(ins)
         if not transplantable:
-            import ipdb
-
-            ipdb.set_trace()
+            log.error("Cannot transplant {}".format(ins.mnemonic))
 
         pattern = "^(b|bl|blx|bx)"
         pattern += "(|eq|ne|gt|lt|ge|le|cs|hs|cc|lo|mi|pl|al|nv|vs|vc|hi|ls)"
@@ -452,8 +450,7 @@ class USBSTranslator:
             transplantable = True
         elif ienc >> 12 == 0b1011:
             # misc
-            # TODO: need to handle misc insns
-            log.debug("misc: {} {}".format(ins.mnemonic, ins.op_str))
+            # log.debug("misc: {} {}".format(ins.mnemonic, ins.op_str))
             transplantable = self._is_transplantable16_misc(ins)
         elif ienc >> 12 == 0b1100:
             # load/store mutliple
@@ -479,9 +476,9 @@ class USBSTranslator:
             transplantable = False
         elif ienc >> 11 == 0b11100:
             # unconditional branch
-            log.debug(
-                "unconditional branch: {} {}".format(ins.mnemonic, ins.op_str)
-            )
+            # log.debug(
+            #     "unconditional branch: {} {}".format(ins.mnemonic, ins.op_str)
+            # )
             transplantable = True
         else:
             log.debug("unknown16: {} {}".format(ins.mnemonic, ins.op_str))
@@ -619,7 +616,7 @@ class USBSTranslator:
             transplantable = True
         elif ienc >> (9 + 16) == 0b1110100 and not is_set(ienc, 6 + 16):
             # Load and store multiple, RFE and SRS
-            if is_set(ienc, 8) == is_set(ienc, 7):
+            if is_set(ienc, 8 + 16) != is_set(ienc, 7 + 16):
                 # V != U (see manual)
                 transplantable = True
             else:
@@ -632,9 +629,7 @@ class USBSTranslator:
         elif ienc >> (11 + 16) == 0b11110 and is_set(ienc, 15):
             # Branches, misc control
             transplantable = self._is_transplantable32_misc(ins)
-        elif (
-            ienc >> (13 + 16) == 0b111 and (ienc >> (8 + 16)) & 0b1111 == 0b1111
-        ):
+        elif ienc >> (13 + 16) == 0b111 and (ienc >> (10 + 16)) & 0b11 == 0b11:
             # co-processor
             log.debug("co-processor: {} {}".format(ins.mnemonic, ins.op_str))
             transplantable = False
@@ -684,7 +679,7 @@ class USBSTranslator:
             #         ins.mnemonic, ins.op_str
             #     )
             # )
-            transplantable = False
+            transplantable = True
         elif (
             is_set(ienc, 15)
             and is_set(ienc, 14)

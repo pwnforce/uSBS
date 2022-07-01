@@ -2,6 +2,12 @@ from distutils.ccompiler import new_compiler
 from shutil import ExecError
 from sys import dont_write_bytecode
 from usbs_assembler import asm, ks_asm
+import struct
+
+# convert bytes to values
+u16 = lambda x: struct.unpack("<H", x)[0]
+u32 = lambda x: struct.unpack("<I", x)[0]
+
 from capstone.arm import (
     ARM_CC_EQ,
     ARM_CC_NE,
@@ -81,6 +87,8 @@ class USBSTranslator:
         #  if self.it_mask[0] == 'e':
         #    it_insert = self.it_bytes[self.opposite[self.it_cond]]
         #  self.it_mask = self.it_mask[1:]
+
+        transplantable = self._is_transplantable(ins)
 
         pattern = "^(b|bl|blx|bx)"
         pattern += "(|eq|ne|gt|lt|ge|le|cs|hs|cc|lo|mi|pl|al|nv|vs|vc|hi|ls)"
@@ -180,7 +188,9 @@ class USBSTranslator:
             % (hex(ins.address), ins.mnemonic)
         )
         # log.debug("ins length: %s"%len(ins.bytes))
-        if force_generate is False and (mapping is None or ins.address not in mapping):
+        if force_generate is False and (
+            mapping is None or ins.address not in mapping
+        ):
             newins = ins.bytes * 2
             # log.debug("length after doubleing the size: %s"%len(newins))
             return newins
@@ -189,7 +199,9 @@ class USBSTranslator:
             newins = b""
             block_found = False
             for tbb_block in self.context.tbb_blocks:
-                if ins.address >= tbb_block["offset_table_addr"] and ins.address < (
+                if ins.address >= tbb_block[
+                    "offset_table_addr"
+                ] and ins.address < (
                     tbb_block["offset_table_addr"] + tbb_block["table_length"]
                 ):
                     # log.debug("TBB: Found a case entry in table @ 0x%x"%ins.address)
@@ -244,7 +256,9 @@ class USBSTranslator:
             % (hex(ins.address), ins.mnemonic, len(ins.bytes))
         )
         # log.debug("ins length: %s"%len(ins.bytes))
-        if force_generate is False and (mapping is None or ins.address not in mapping):
+        if force_generate is False and (
+            mapping is None or ins.address not in mapping
+        ):
             newins = ins.bytes * 2  # 2 bytes offsets now become 4 bytes
             log.debug("length after doubleing the size: %s" % len(newins))
             return newins
@@ -253,10 +267,15 @@ class USBSTranslator:
             newins = b""
             block_found = False
             for tbh_block in self.context.tbh_blocks:
-                if ins.address >= tbh_block["offset_table_addr"] and ins.address < (
-                    tbh_block["offset_table_addr"] + tbh_block["table_length"] * 2
+                if ins.address >= tbh_block[
+                    "offset_table_addr"
+                ] and ins.address < (
+                    tbh_block["offset_table_addr"]
+                    + tbh_block["table_length"] * 2
                 ):
-                    log.debug("TBH: Found a case entry in table @ 0x%x" % ins.address)
+                    log.debug(
+                        "TBH: Found a case entry in table @ 0x%x" % ins.address
+                    )
                     block_found = True
                     slice_lower_idx = (
                         ins.address - tbh_block["offset_table_addr"]
@@ -302,6 +321,214 @@ class USBSTranslator:
             log.debug("newins after patch: %s len:%d" % (newins, len(newins)))
             return newins
 
+    def _is_transplantable(self, ins):
+        """Return `True` if Cortex-M Thumb-2 instruction `ins` can be executed
+        as a Cortex-A aarch32 Thumb-2 instruction adhering to the
+        same semantics.
+        Insn encodings taken from `http://class.ece.iastate.edu/cpre288/
+        resources/docs/Thumb-2SupplementReferenceManual.pdf`
+        """
+
+        transplantable = False
+        if len(ins.bytes) == 2:
+            # 2-byte insns
+            transplantable = self._is_transplantable16(ins)
+        elif len(ins.bytes) == 4:
+            # 4-byte insns
+            transplantable = self._is_transplantable32(ins)
+        else:
+            log.error("Unexpected insn of length {}".format(len(ins.bytes)))
+            import ipdb
+
+            ipdb.set_trace()
+
+        return transplantable
+
+    def _is_transplantable16(self, ins):
+
+        assert len(ins.bytes) == 2, "expecting 2 bytes instead of {}".format(
+            len(ins.bytes)
+        )
+
+        transplantable = False
+        ienc = u16(ins.bytes)
+        if ienc >> 13 == 0 and ienc >> 11 != 0b11:
+            # Shift by immediate, move register
+            log.debug(
+                "sh imm or mov reg: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 10 == 0b000110:
+            # Add / subtract register
+            log.debug("add/sub reg: {} {}".format(ins.mnemonic, ins.op_str))
+        elif ienc >> 10 == 0b000111:
+            # Add / subtract immediate
+            log.debug(
+                "add/sub immediate: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 13 == 0b001:
+            # Add / subtract / compare / move immediate
+            log.debug(
+                "add/sub/cmp/mv immediate: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif ienc >> 10 == 0b010000:
+            # Data-processing register
+            log.debug(
+                "data-processing reg: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 10 == 0b010001 and (ienc >> 8) & 0b11 != 0b11:
+            # Special data processing
+            log.debug(
+                "special data processing: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif ienc >> 8 == 0b01000111:
+            # Branch/exchange instruction set
+            log.debug(
+                "branch/exchange insn set: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif ienc >> 11 == 0b01001:
+            # Load from literal pool
+            log.debug(
+                "load from literal pool: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 12 == 0b0101:
+            # Load/store register offset
+            log.debug(
+                "load/store register offset: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif ienc >> 13 == 0b011:
+            # Load/store word/byte immediate offset
+            log.debug(
+                "load/store word/byte immediate offset: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif ienc >> 12 == 0b1000:
+            # Load/store halfword immediate offset
+            log.debug(
+                "load/store halfword immediate offset: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif ienc >> 12 == 0b1001:
+            # load/store stack
+            log.debug(
+                "load/store stack: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 12 == 0b1010:
+            # add to sp or pc
+            log.debug("add to sp or pc: {} {}".format(ins.mnemonic, ins.op_str))
+        elif ienc >> 12 == 0b1011:
+            # misc
+            # TODO: need to handle misc insns
+            log.debug("misc: {} {}".format(ins.mnemonic, ins.op_str))
+        elif ienc >> 12 == 0b1100:
+            # load/store mutliple
+            log.debug(
+                "load/store mutliple: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 12 == 0b1101 and ((ienc >> 9) & 0b111) != 0b111:
+            # conditional branch
+            log.debug(
+                "conditional branch: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 8 == 0b11011110:
+            # undefined insn
+            log.debug("undefined insn: {} {}".format(ins.mnemonic, ins.op_str))
+        elif ienc >> 8 == 0b11011111:
+            # service system call
+            log.debug(
+                "service system call: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> 11 == 0b11100:
+            # unconditional branch
+            log.debug(
+                "unconditional branch: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        else:
+            log.debug("unknown16: {} {}".format(ins.mnemonic, ins.op_str))
+            log.error("Our insn decoding is incomplete, if we end up here.")
+            import ipdb
+            ipdb.set_trace()
+
+        return transplantable
+
+    def _is_transplantable32(self, ins):
+
+        assert len(ins.bytes) == 4, "expecting 4 bytes instead of {}".format(
+            len(ins.bytes)
+        )
+
+        transplantable = False
+        ienc = u16(ins.bytes[:2]) << 16 | u16(ins.bytes[2:])
+        # import ipdb
+
+        # ipdb.set_trace()
+        if ienc >> (11 + 16) == 0b11110 and ((ienc >> 15) & 0b1) == 0b0:
+            # Data processing: immediate, including bitfield, and saturate
+            log.debug(
+                "data processing imm, bitfield, saturate: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif (
+            ienc >> (13 + 16) == 0b111 and ((ienc >> (9 + 16)) & 0b111) == 0b101
+        ):
+            # Data processing no immediate operand
+            log.debug(
+                "data processing no imm: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif ienc >> (9 + 16) == 0b1111100:
+            # Load and store single data item
+            log.debug(
+                "load and store single data item: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif (
+            ienc >> (9 + 16) == 0b1110100 and ((ienc >> (6 + 16)) & 0b1) == 0b1
+        ):
+            # Load and store, double and exclusive, and table branch
+            log.debug(
+                "load and store, double and exclusive, and table branch: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif (
+            ienc >> (9 + 16) == 0b1110100 and ((ienc >> (6 + 16)) & 0b1) == 0b0
+        ):
+            # Load and store multiple, RFE and SRS
+            log.debug(
+                "load and store multiple, RFE and SRS: {} {}".format(
+                    ins.mnemonic, ins.op_str
+                )
+            )
+        elif ienc >> (11 + 16) == 0b11110 and ((ienc >> 15) & 0b1) == 0b1:
+            # Branches, misc control
+            log.debug(
+                "branches, misc control: {} {}".format(ins.mnemonic, ins.op_str)
+            )
+        elif (
+            ienc >> (13 + 16) == 0b111 and (ienc >> (8 + 16)) & 0b1111 == 0b1111
+        ):
+            # co-processor
+            log.debug("co-processor: {} {}".format(ins.mnemonic, ins.op_str))
+        else:
+            log.debug("unknown32: {} {}".format(ins.mnemonic, ins.op_str))
+            log.error("Our insn decoding is incomplete, if we end up here.")
+            import ipdb
+
+            ipdb.set_trace()
+
+        return transplantable
+
     def _process_tbb_block_case(self, ins, newins, mapping):
         # check if address is in a tbb switch case block
         # if mapping is not None and ins.address in mapping: # ! Cannot modify the offsets if the table has already been written to the binary
@@ -318,7 +545,8 @@ class USBSTranslator:
 
                     for i in range(block_count):
                         base_addr, case_length = zip(
-                            tbb_block["cases_addresses"], tbb_block["cases_lengths"]
+                            tbb_block["cases_addresses"],
+                            tbb_block["cases_lengths"],
                         )[i]
                         # log.debug("TBB: Checking if 0x%x is in the tbb block starting @ 0x%x , %s bytes long"%(ins.address, base_addr, case_length))
                         if (
@@ -336,11 +564,15 @@ class USBSTranslator:
                                     len(tbb_block["cases_addresses"])
                                 ):  # Need to increment the offset of all the following blocks (i.e. with greater offset), not the current one
                                     if tbb_block["table_offsets"][j] > curr_off:
-                                        newoffset = tbb_block["table_offsets"][j] + (
-                                            (len(newins) - len(ins.bytes)) / 2
+                                        newoffset = tbb_block["table_offsets"][
+                                            j
+                                        ] + ((len(newins) - len(ins.bytes)) / 2)
+                                        old_offset = tbb_block[
+                                            "table_offsets"
+                                        ].pop(j)
+                                        tbb_block["table_offsets"].insert(
+                                            j, newoffset
                                         )
-                                        old_offset = tbb_block["table_offsets"].pop(j)
-                                        tbb_block["table_offsets"].insert(j, newoffset)
                                         log.debug(
                                             "TBB: old offset %s new offset: %s"
                                             % (hex(old_offset), hex(newoffset))
@@ -357,11 +589,15 @@ class USBSTranslator:
         # if hex(ins.address) == hex(0x8001286):
         #   log.debug("TBH: FOUND: I am @ %s"%hex(ins.address))
         if newins is not None:
-            if mapping is None or ins.address not in mapping:  # i.e. if mapping time
+            if (
+                mapping is None or ins.address not in mapping
+            ):  # i.e. if mapping time
                 # block_found = False
                 for (
                     tbh_block
-                ) in self.context.tbh_blocks:  # for each tbh instruction in the code
+                ) in (
+                    self.context.tbh_blocks
+                ):  # for each tbh instruction in the code
                     # log.debug("TBH: Checking if 0x%x is in a tbh block"%ins.address)
 
                     block_count = min(
@@ -418,14 +654,18 @@ class USBSTranslator:
                                     len(tbh_block["sorted_cases_addresses"])
                                 ):  # Need to increment the offsets and lengths of all the following blocks (i.e. with greater offset), not the current one
                                     if tbh_block["table_offsets"][j] > curr_off:
-                                        newoffset = tbh_block["table_offsets"][j] + (
-                                            (len(newins) - len(ins.bytes)) / 2
-                                        )
+                                        newoffset = tbh_block["table_offsets"][
+                                            j
+                                        ] + ((len(newins) - len(ins.bytes)) / 2)
                                         # if (newins[1] == "\xbc"): # TODO: check if this is ok. Tentative fix for offsets accounting the pop {candidate_reg} to the offset of the current block embedding the pop --> making it part of the previous block
                                         #   log.debug("TBH: Found a prepended pop instruction at %s, adjusting offset value %s by - 1*2 bytes"%(hex(ins.address), hex(newoffset)))
                                         #   newoffset = newoffset - 1 # * this may be correct but I should avoid doing it twice for blocks with 0 length
-                                        old_offset = tbh_block["table_offsets"].pop(j)
-                                        tbh_block["table_offsets"].insert(j, newoffset)
+                                        old_offset = tbh_block[
+                                            "table_offsets"
+                                        ].pop(j)
+                                        tbh_block["table_offsets"].insert(
+                                            j, newoffset
+                                        )
                                         log.debug(
                                             "TBH: old offset %s new offset: %s"
                                             % (hex(old_offset), hex(newoffset))
@@ -478,7 +718,9 @@ class USBSTranslator:
             (ins_addr, cmp_value)
         )  # append the address and value of the last cmp
         if len(self.context.last_cmp_addresses) > 5:
-            self.context.last_cmp_addresses = self.context.last_cmp_addresses[1:]
+            self.context.last_cmp_addresses = self.context.last_cmp_addresses[
+                1:
+            ]
         return None
 
     def _push_branch_block(self, ins, target, mapping):
@@ -490,7 +732,9 @@ class USBSTranslator:
             (ins_addr, target)
         )  # append the address and value of the last cmp
         if len(self.context.last_branch_addresses) > 5:
-            self.context.last_branch_addresses = self.context.last_branch_addresses[1:]
+            self.context.last_branch_addresses = (
+                self.context.last_branch_addresses[1:]
+            )
         return None
 
     def _dont_instrument_it_blocks(self):
@@ -545,7 +789,12 @@ class USBSTranslator:
         if ins.mnemonic != "strd":
             if opcnt == 2:
                 inserted = self.before_str(
-                    ins, operands[1], None, None, self.context.stackaddr, operands[0]
+                    ins,
+                    operands[1],
+                    None,
+                    None,
+                    self.context.stackaddr,
+                    operands[0],
                 )
                 # print "inserted%s"%inserted
                 return inserted + str(ins.bytes)
@@ -699,7 +948,9 @@ class USBSTranslator:
                 tbb_offset_table_addr = ins.address + 4
             else:
                 tbb_offset_table_addr = 0xFFFFFFFF
-                log.debug("ERROR: tbb offset table is somewhere else: %s" % operator)
+                log.debug(
+                    "ERROR: tbb offset table is somewhere else: %s" % operator
+                )
                 raise NotImplemented(
                     "tbb offset table is somewhere else: %s" % operator
                 )
@@ -754,7 +1005,8 @@ class USBSTranslator:
                 )
                 # ! I'm considering the default case as an additional case but I am not incrcementing the table length / cases count
                 log.debug(
-                    "  First case address: %s" % hex(cases_code_addresses_sorted[0])
+                    "  First case address: %s"
+                    % hex(cases_code_addresses_sorted[0])
                 )
                 log.debug(
                     "  Offset table address: %s + %s = %s"
@@ -771,7 +1023,8 @@ class USBSTranslator:
 
             for i in range(tbb_table_length - 1):
                 tbb_cases_lengths.append(
-                    cases_code_addresses_sorted[i + 1] - cases_code_addresses_sorted[i]
+                    cases_code_addresses_sorted[i + 1]
+                    - cases_code_addresses_sorted[i]
                 )
 
             tbb_metadata["cases_lengths"] = tbb_cases_lengths
@@ -786,7 +1039,10 @@ class USBSTranslator:
                 )
             else:  # take the value from the branch right after the last cmp
                 assert len(self.context.last_branch_addresses) != 0
-                addr, branch_target_address = self.context.last_branch_addresses[-1]
+                (
+                    addr,
+                    branch_target_address,
+                ) = self.context.last_branch_addresses[-1]
                 log.debug(
                     "Considering last branch at %s to target address %s"
                     % (hex(addr), hex(branch_target_address))
@@ -834,7 +1090,8 @@ class USBSTranslator:
                     % hex(ins.address)
                 )
                 raise Exception(
-                    "TBB->TBH address %s is not in the mapping" % hex(ins.address)
+                    "TBB->TBH address %s is not in the mapping"
+                    % hex(ins.address)
                 )
 
     def _translate_tbh(self, ins, mapping):
@@ -863,14 +1120,17 @@ class USBSTranslator:
                     % operator
                 )
                 raise NotImplemented(
-                    "Unsupported TBH operator (only lsl #1 is supported): %s" % operator
+                    "Unsupported TBH operator (only lsl #1 is supported): %s"
+                    % operator
                 )
 
             if "[pc," in operator:
                 tbh_offset_table_addr = ins.address + 4
             else:
                 tbh_offset_table_addr = 0xFFFFFFFF
-                log.debug("ERROR: tbh offset table is somewhere else: %s" % operator)
+                log.debug(
+                    "ERROR: tbh offset table is somewhere else: %s" % operator
+                )
                 raise NotImplemented(
                     "tbh offset table is somewhere else: %s" % operator
                 )
@@ -880,7 +1140,8 @@ class USBSTranslator:
             assert len(self.context.last_cmp_addresses) != 0
             addr, cmp_op = self.context.last_cmp_addresses[-1]
             log.debug(
-                "Considering last cmp at %s with value %d" % (hex(addr), int(cmp_op))
+                "Considering last cmp at %s with value %d"
+                % (hex(addr), int(cmp_op))
             )
 
             tbh_table_length = 1 + cmp_op  # in units, not bytes
@@ -896,7 +1157,9 @@ class USBSTranslator:
             tbh_metadata["table_offsets"] = tbh_table_offsets
 
             # * each offset needs to be increased to account for the double size of all the offsets
-            tbh_metadata["table_offset_additions"] = len(tbh_table_offsets)  # * 2
+            tbh_metadata["table_offset_additions"] = len(
+                tbh_table_offsets
+            )  # * 2
 
             # log.debug('Old offsets: %s'%tbh_metadata['original_table_offsets'])
             # log.debug('New offsets: %s'%tbh_metadata['table_offsets'])
@@ -921,7 +1184,8 @@ class USBSTranslator:
                     "WARNING: first case address is not the offset table address + table length. Assuming there's the default one there and considering it as an additional case."
                 )
                 log.debug(
-                    "  First case address: %s" % hex(cases_code_addresses_sorted[0])
+                    "  First case address: %s"
+                    % hex(cases_code_addresses_sorted[0])
                 )
                 log.debug(
                     "  Offset table address: %s + (%s * 2) = %s"
@@ -939,7 +1203,8 @@ class USBSTranslator:
 
             for i in range(tbh_table_length - 1):
                 tbh_cases_lengths.append(
-                    cases_code_addresses_sorted[i + 1] - cases_code_addresses_sorted[i]
+                    cases_code_addresses_sorted[i + 1]
+                    - cases_code_addresses_sorted[i]
                 )
 
             tbh_metadata["cases_lengths"] = tbh_cases_lengths
@@ -954,7 +1219,10 @@ class USBSTranslator:
                 )
             else:  # take the value from the branch right after the last cmp
                 assert len(self.context.last_branch_addresses) != 0
-                addr, branch_target_address = self.context.last_branch_addresses[-1]
+                (
+                    addr,
+                    branch_target_address,
+                ) = self.context.last_branch_addresses[-1]
                 log.debug(
                     "Considering last branch at %s to target address %s"
                     % (hex(addr), hex(branch_target_address))
@@ -1009,7 +1277,9 @@ class USBSTranslator:
             # backup the table address register to the stack
             # ! Later I will need to restore it in each case (including the default one)
             # TODO: For every instruction which is at the beginning of a case, I need to prepend a pop {table_address_register} instruction
-            code = asm("push {%s}" % (table_address_register), self.context.newbase)
+            code = asm(
+                "push {%s}" % (table_address_register), self.context.newbase
+            )
             code += asm(
                 "nop", self.context.newbase
             )  # TODO: This is for instructions alignment. Need to dinamically calculate the number of nops needed
@@ -1025,14 +1295,20 @@ class USBSTranslator:
             code += adr_code
 
             new_ldr_operator = (
-                "pc, [" + table_address_register + ", " + index_register + ", lsl #2]"
+                "pc, ["
+                + table_address_register
+                + ", "
+                + index_register
+                + ", lsl #2]"
             )  # lsl #2 for a word offset
             log.debug("New ldr operator: %s" % new_ldr_operator)
             code += asm(
                 "ldr %s" % (new_ldr_operator), self.context.newbase
             )  # pc, [r3,r0,LSL#2]
 
-            log.debug("New tbh->adr|ldr code length before mapping: %d" % len(code))
+            log.debug(
+                "New tbh->adr|ldr code length before mapping: %d" % len(code)
+            )
 
             return code
             # return None
@@ -1069,8 +1345,12 @@ class USBSTranslator:
                 # register to store table address
                 table_address_register = arm_v7_gp_regs[0]
 
-                log.debug("Generating TBH->ADR|LDR code at %s" % hex(ins.address))
-                code = asm("push {%s}" % (table_address_register), self.context.newbase)
+                log.debug(
+                    "Generating TBH->ADR|LDR code at %s" % hex(ins.address)
+                )
+                code = asm(
+                    "push {%s}" % (table_address_register), self.context.newbase
+                )
                 code += asm(
                     "nop", self.context.newbase
                 )  # TODO: This is for instructions alignment. Need to dinamically calculate the number of nops needed
@@ -1078,7 +1358,9 @@ class USBSTranslator:
                 new_adr_operator = table_address_register + ", #8"
                 log.debug("New adr operator: %s" % new_adr_operator)
                 # code += _asm( 'adr %s'%(new_adr_operator),self.context.newbase)
-                adr_code = asm("adr %s" % (new_adr_operator), self.context.newbase)
+                adr_code = asm(
+                    "adr %s" % (new_adr_operator), self.context.newbase
+                )
                 adr_code = (
                     adr_code[:2] + "\x04" + adr_code[3:]
                 )  # replace the third byte with 0
@@ -1096,7 +1378,9 @@ class USBSTranslator:
                     "ldr %s" % (new_ldr_operator), self.context.newbase
                 )  # pc, [r3,r0,LSL#2]
 
-                log.debug("New tbh->adr|ldr code length after mapping: %d" % len(code))
+                log.debug(
+                    "New tbh->adr|ldr code length after mapping: %d" % len(code)
+                )
 
                 return code
 
@@ -1106,7 +1390,8 @@ class USBSTranslator:
                     % hex(ins.address)
                 )
                 raise Exception(
-                    "TBH->ADR|LDR address %s is not in the mapping" % hex(ins.address)
+                    "TBH->ADR|LDR address %s is not in the mapping"
+                    % hex(ins.address)
                 )
 
     def _translate_ldr(self, ins, mapping):
@@ -1152,7 +1437,9 @@ class USBSTranslator:
                     newtarget = self.context.newbase + mapping[targetadd]
                     newtarget_low_addr = "0x" + str(hex(newtarget))[-4:]
                     newtarget_high_addr = str(hex(newtarget))[:-4]
-                    vmabase = self.context.newbase + mapping[ins.address] + len(code)
+                    vmabase = (
+                        self.context.newbase + mapping[ins.address] + len(code)
+                    )
 
                     off = newtarget - vmabase - 4
                     if vmabase % 0x4 != 0:
@@ -1201,12 +1488,16 @@ class USBSTranslator:
                         return code
                     else:
                         if ".w" not in ins.mnemonic:
-                            code += asm("%s.w %s" % (ins.mnemonic, operator), vmabase)
+                            code += asm(
+                                "%s.w %s" % (ins.mnemonic, operator), vmabase
+                            )
                             # if hex(ins.address) == '0x80001c2':
                             # log.debug('%s.w %s'%(ins.mnemonic,operator))
                             return code
                         else:
-                            code += asm("%s %s" % (ins.mnemonic, operator), vmabase)
+                            code += asm(
+                                "%s %s" % (ins.mnemonic, operator), vmabase
+                            )
                             # if hex(ins.address) == '0x80001c2':
                             # log.debug('%s.w %s'%(ins.mnemonic,operator))
                             return code
@@ -1217,7 +1508,14 @@ class USBSTranslator:
                 if reg != "sp" and not it_status:
                     code += asm(
                         template
-                        % (reg, newtarget_low_addr, reg, newtarget_high_addr, reg, reg),
+                        % (
+                            reg,
+                            newtarget_low_addr,
+                            reg,
+                            newtarget_high_addr,
+                            reg,
+                            reg,
+                        ),
                         self.context.newbase,
                     )
                     # log.debug(template%(reg,newtarget_low_addr, reg, newtarget_high_addr, reg, reg))
@@ -1225,12 +1523,14 @@ class USBSTranslator:
                 else:
                     if ".w" not in ins.mnemonic:
                         code += asm(
-                            "%s.w %s" % (ins.mnemonic, operator), self.context.newbase
+                            "%s.w %s" % (ins.mnemonic, operator),
+                            self.context.newbase,
                         )
                         return code
                     else:
                         code += asm(
-                            "%s %s" % (ins.mnemonic, operator), self.context.newbase
+                            "%s %s" % (ins.mnemonic, operator),
+                            self.context.newbase,
                         )
                         return code
         # if (len(code) > 0):
@@ -1279,7 +1579,9 @@ class USBSTranslator:
             # print code
             # print "coount%s"%count
             return code
-        encoding, count = self.ks.asm(template % (reg, newtarget), self.context.newbase)
+        encoding, count = self.ks.asm(
+            template % (reg, newtarget), self.context.newbase
+        )
         for i, s in enumerate(encoding):
             encoding[i] = struct.pack("<B", s)
         code = "".join(encoding)
@@ -1341,7 +1643,9 @@ class USBSTranslator:
             newtarget = self.context.newbase + 4
             if mapping is not None and target in mapping:
                 newtarget = self.context.newbase + mapping[target]
-                vmabase = self.context.newbase + mapping[ins.address] + len(code)
+                vmabase = (
+                    self.context.newbase + mapping[ins.address] + len(code)
+                )
                 newtarget = hex(newtarget)
 
                 # print "target: %s"%hex(target)
@@ -1353,7 +1657,9 @@ class USBSTranslator:
                 code += asm("%s %s" % (ins.mnemonic, newtarget), vmabase)
                 return code
                 # print "new length: %s"%len(callback_code+patched)
-            code += asm("%s %s" % (ins.mnemonic, newtarget), self.context.newbase)
+            code += asm(
+                "%s %s" % (ins.mnemonic, newtarget), self.context.newbase
+            )
             return code
 
         if len(code) > 0:
